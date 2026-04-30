@@ -16,13 +16,18 @@ export default function AuthPage() {
     const [hasError] = useState(() => {
         if (typeof window === "undefined") return false
         const params = new URLSearchParams(window.location.search)
-        return params.get("error") === "auth_failed"
+        return params.has("error")
+    })
+    const [errorMessage] = useState(() => {
+        if (typeof window === "undefined") return ""
+        const params = new URLSearchParams(window.location.search)
+        return params.get("message") ?? ""
     })
 
     const signInWithGoogle = async () => {
         await supabase.auth.signInWithOAuth({
             provider: "google",
-            options: { redirectTo: `${window.location.origin}/auth/callback` },
+            options: { redirectTo: `${window.location.origin}/auth/callback?next=/` },
         })
     }
 
@@ -30,7 +35,7 @@ export default function AuthPage() {
         await supabase.auth.signInWithOAuth({
             provider: "kakao",
             options: {
-                redirectTo: `${window.location.origin}/auth/callback`,
+                redirectTo: `${window.location.origin}/auth/callback?next=/`,
                 scopes: "profile_nickname",
             },
         });
@@ -63,7 +68,7 @@ export default function AuthPage() {
                     </p>
                     {hasError && (
                         <p className="mt-3 text-xs font-medium text-red-400/80">
-                            로그인에 실패했습니다. 다시 시도해주세요.
+                            {errorMessage || "로그인에 실패했습니다. 다시 시도해주세요."}
                         </p>
                     )}
 

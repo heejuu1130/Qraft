@@ -178,7 +178,7 @@ export default function Hero() {
     gtag.login("google")
     await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options: { redirectTo: `${window.location.origin}/auth/callback?next=/` },
     })
   }
 
@@ -187,7 +187,7 @@ export default function Hero() {
     await supabase.auth.signInWithOAuth({
       provider: "kakao",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback?next=/`,
         scopes: "profile_nickname",
       },
     })

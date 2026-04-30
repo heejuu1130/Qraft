@@ -1,13 +1,20 @@
 declare global {
   interface Window {
+    dataLayer?: unknown[]
     gtag: (...args: unknown[]) => void
   }
 }
 
 function send(name: string, params?: Record<string, unknown>) {
-  if (typeof window !== "undefined" && typeof window.gtag === "function") {
+  if (typeof window === "undefined") return
+
+  if (typeof window.gtag === "function") {
     window.gtag("event", name, params)
+    return
   }
+
+  window.dataLayer = window.dataLayer ?? []
+  window.dataLayer.push(["event", name, params])
 }
 
 export const gtag = {

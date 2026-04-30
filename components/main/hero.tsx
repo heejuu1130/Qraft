@@ -785,7 +785,7 @@ export default function Hero() {
         style={{ fontFamily: '"Outfit", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
       >
         {generationState === "idle" && (
-          <div className="flex w-full flex-col items-center">
+          <div className="flex w-full flex-col items-center mb-[12vh]">
             <h1 className="relative text-5xl font-medium leading-[1.1] tracking-normal drop-shadow-[0_8px_28px_rgba(13,8,5,0.28)] sm:text-[64px]">
               <span className="text-[#f5dfbd]/90 mix-blend-difference">Qraft</span>
               <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2] mix-blend-overlay">

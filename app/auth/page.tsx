@@ -28,21 +28,36 @@ export default function AuthPage() {
         return () => window.clearTimeout(timer)
     }, [])
 
-    const signInWithGoogle = async () => {
-        await supabase.auth.signInWithOAuth({
-            provider: "google",
-            options: { redirectTo: `${window.location.origin}/auth/callback?next=/` },
+    const startOAuth = async (provider: "google" | "kakao") => {
+        setHasError(false)
+        setErrorCode("")
+        setErrorMessage("")
+
+        const { data, error } = await supabase.auth.signInWithOAuth({
+            provider,
+            options: {
+                redirectTo: `${window.location.origin}/auth/callback?next=/`,
+                skipBrowserRedirect: true,
+                ...(provider === "kakao" ? { scopes: "profile_nickname" } : {}),
+            },
         })
+
+        if (error || !data.url) {
+            setHasError(true)
+            setErrorCode(error?.code ?? "oauth_url_failed")
+            setErrorMessage(error?.message ?? "로그인 주소를 만들지 못했습니다.")
+            return
+        }
+
+        window.location.assign(data.url)
+    }
+
+    const signInWithGoogle = async () => {
+        await startOAuth("google")
     }
 
     const signInWithKakao = async () => {
-        await supabase.auth.signInWithOAuth({
-            provider: "kakao",
-            options: {
-                redirectTo: `${window.location.origin}/auth/callback?next=/`,
-                scopes: "profile_nickname",
-            },
-        });
+        await startOAuth("kakao")
     };
 
     return (

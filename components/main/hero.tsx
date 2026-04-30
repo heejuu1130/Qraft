@@ -151,6 +151,7 @@ export default function Hero() {
   const [savedQuestionKeys, setSavedQuestionKeys] = useState<Set<string>>(() => new Set())
   const [savedQuestionIds, setSavedQuestionIds] = useState<Map<string, string>>(() => new Map())
   const [showLogin, setShowLogin] = useState(false)
+  const [authErrorMessage, setAuthErrorMessage] = useState("")
   const summaryRef = useRef<HTMLParagraphElement>(null)
   const pendingSaveRestoredRef = useRef(false)
   const step1TimerRef = useRef<number | undefined>(undefined)
@@ -186,23 +187,33 @@ export default function Hero() {
     user?.email?.charAt(0) ??
     "Q"
 
-  const signInWithGoogle = async () => {
-    gtag.login("google")
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback?next=/` },
+  const startOAuth = async (provider: "google" | "kakao") => {
+    setAuthErrorMessage("")
+    gtag.login(provider)
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=/`,
+        skipBrowserRedirect: true,
+        ...(provider === "kakao" ? { scopes: "profile_nickname" } : {}),
+      },
     })
+
+    if (error || !data.url) {
+      setAuthErrorMessage(error?.message ?? "로그인 주소를 만들지 못했습니다.")
+      return
+    }
+
+    window.location.assign(data.url)
+  }
+
+  const signInWithGoogle = async () => {
+    await startOAuth("google")
   }
 
   const signInWithKakao = async () => {
-    gtag.login("kakao")
-    await supabase.auth.signInWithOAuth({
-      provider: "kakao",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/`,
-        scopes: "profile_nickname",
-      },
-    })
+    await startOAuth("kakao")
   }
 
   const isLoading = generationState === "loading"
@@ -678,6 +689,11 @@ export default function Hero() {
               style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}>
               질문 히스토리를 저장하려면 로그인하세요
             </p>
+            {authErrorMessage && (
+              <p className="mt-3 text-xs font-medium leading-[1.55] text-red-400/80">
+                {authErrorMessage}
+              </p>
+            )}
 
             <div className="mt-6 flex flex-col gap-3">
               <button

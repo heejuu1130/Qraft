@@ -19,6 +19,12 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
+    return () => { audio.pause() }
+  }, [])
+
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
 
     if (bgmOn) {
       audio.play().catch(() => {})

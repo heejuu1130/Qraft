@@ -156,6 +156,11 @@ export default function Hero() {
   const [showLogin, setShowLogin] = useState(false)
   const summaryRef = useRef<HTMLParagraphElement>(null)
   const pendingSaveRestoredRef = useRef(false)
+  const step1TimerRef = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    return () => { window.clearTimeout(step1TimerRef.current) }
+  }, [])
   const supabase = useMemo(() => createClient(), [])
   const { user, signOut } = useAuth()
   const { bgmOn, toggleBgm } = useBgm()
@@ -295,7 +300,7 @@ export default function Hero() {
     setLastSource(source)
     setGenerationState("loading")
 
-    const step1Timer = window.setTimeout(() => setLoadingStep(1), refiningStepDuration)
+    step1TimerRef.current = window.setTimeout(() => setLoadingStep(1), refiningStepDuration)
 
     try {
       const payloadPromise = fetch("/api/questions", {
@@ -309,17 +314,17 @@ export default function Hero() {
 
       const [payload] = await Promise.all([payloadPromise, wait(refiningDuration)])
 
+      window.clearTimeout(step1TimerRef.current)
       setLoadingStep(2)
       await wait(3000)
 
-      window.clearTimeout(step1Timer)
       setSummary(payload.summary)
       setQuestions(payload.questions)
       setReflections(payload.reflections)
       await saveHistory(source, payload)
       setGenerationState("ready")
     } catch (error) {
-      window.clearTimeout(step1Timer)
+      window.clearTimeout(step1TimerRef.current)
       console.error(error)
       setGenerationState("error")
     }
@@ -335,7 +340,7 @@ export default function Hero() {
     setOpenReflectionIndexes(new Set())
     setGenerationState("loading")
 
-    const step1Timer = window.setTimeout(() => setLoadingStep(1), regenerateStepDuration)
+    step1TimerRef.current = window.setTimeout(() => setLoadingStep(1), regenerateStepDuration)
 
     try {
       const payloadPromise = fetch("/api/questions", {
@@ -349,7 +354,7 @@ export default function Hero() {
 
       const [payload] = await Promise.all([payloadPromise, wait(regenerateDuration)])
 
-      window.clearTimeout(step1Timer)
+      window.clearTimeout(step1TimerRef.current)
       setLoadingStep(2)
       await wait(3000)
 
@@ -357,7 +362,7 @@ export default function Hero() {
       setReflections(payload.reflections)
       setGenerationState("ready")
     } catch (error) {
-      window.clearTimeout(step1Timer)
+      window.clearTimeout(step1TimerRef.current)
       console.error(error)
       setGenerationState("error")
     }

@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk"
 
-const client = new Anthropic()
+const client = new Anthropic({ timeout: 30000 })
 
 const PERSONA = `Qraft의 문체:
 - 차분하고 단정한 한국어 문어체를 씁니다.

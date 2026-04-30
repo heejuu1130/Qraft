@@ -42,8 +42,31 @@ const SYSTEM_PROMPT = [
   .filter(Boolean)
   .join("\n\n")
 
+const REGENERATE_SYSTEM_PROMPT = [
+  PERSONA,
+  `당신은 Qraft입니다. 입력된 요약을 바탕으로 기존과 다른 새로운 질문 3개와 각 질문의 고찰 예시를 한국어로 생성합니다.
+
+규칙:
+- 정확히 3개의 질문을 생성합니다.
+- 질문은 콘텐츠 자체의 감상평을 묻지 말고, 내용에서 나온 고민할 만한 주제를 묻습니다.
+- "이 영상", "이 글", "이 인터뷰"라는 표현은 질문에 쓰지 않습니다.
+- 1번 질문은 쉽고 짧은 진입 질문입니다.
+- 2번 질문은 핵심 쟁점을 이해했는지 묻는 보통 난이도 질문입니다.
+- 3번 질문은 더 오래 생각해야 하는 깊은 질문입니다.
+- 질문은 자연스러워야 하며, 문학적 수사를 과하게 쓰지 않습니다.
+- reflections는 각 질문에 대한 가능한 고찰 예시입니다.
+- reflections는 정확히 3개이며, 각 항목은 화면 기준 최대 3줄 분량입니다.
+- reflections는 질문에 대한 짧은 예시 답변처럼 작성하되, 정답처럼 단정하지 않습니다.
+- reflections는 핵심 판단 1문장과 그 판단을 뒷받침하는 이유 1~2문장으로 구성합니다.
+- 반드시 JSON 객체 형식으로만 반환합니다: {"questions":["질문1","질문2","질문3"],"reflections":["1번 질문 고찰","2번 질문 고찰","3번 질문 고찰"]}
+- 설명, 부연, 마크다운 없이 JSON 객체만 출력합니다.`,
+]
+  .filter(Boolean)
+  .join("\n\n")
+
 type QuestionRequest = {
   source?: unknown
+  summary?: unknown
 }
 
 function isUrl(str: string): boolean {
@@ -128,11 +151,56 @@ export async function POST(request: Request) {
   }
 
   const source = typeof body.source === "string" ? body.source.trim() : ""
+  const existingSummary = typeof body.summary === "string" ? body.summary.trim() : ""
 
-  if (!source) {
+  if (!source && !existingSummary) {
     return Response.json({ message: "Source is required" }, { status: 400 })
   }
 
+  // 재생성 모드: 기존 요약으로 질문+고찰만 생성
+  if (existingSummary) {
+    let raw = ""
+
+    try {
+      const response = await client.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 800,
+        system: REGENERATE_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: existingSummary }],
+      })
+
+      raw = response.content[0].type === "text" ? response.content[0].text.trim() : ""
+    } catch (error) {
+      console.error(error)
+      return Response.json({ questions: FALLBACK_QUESTIONS, reflections: FALLBACK_REFLECTIONS })
+    }
+
+    let questions: string[] = FALLBACK_QUESTIONS
+    let reflections: string[] = FALLBACK_REFLECTIONS
+
+    try {
+      const jsonMatch = raw.match(/\{[\s\S]*\}/)
+      const parsed: unknown = JSON.parse(jsonMatch ? jsonMatch[0] : raw)
+
+      if (parsed && typeof parsed === "object" && "questions" in parsed) {
+        const payload = parsed as { questions?: unknown; reflections?: unknown }
+
+        if (Array.isArray(payload.questions) && payload.questions.every((q) => typeof q === "string")) {
+          questions = payload.questions
+        }
+        if (Array.isArray(payload.reflections) && payload.reflections.every((r) => typeof r === "string")) {
+          reflections = payload.reflections
+        }
+      }
+    } catch {}
+
+    return Response.json({
+      questions: normalizeList(questions, FALLBACK_QUESTIONS),
+      reflections: normalizeList(reflections, FALLBACK_REFLECTIONS),
+    })
+  }
+
+  // 최초 생성 모드
   let content: string
 
   if (isUrl(source)) {

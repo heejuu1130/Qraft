@@ -71,7 +71,8 @@ type RestoredResultState = Omit<PendingSaveState, "questionIndex">
 
 const refiningDuration = 8400
 const refiningStepDuration = refiningDuration / 3
-const revealDuration = 1200
+const regenerateDuration = 2000
+const regenerateStepDuration = 1000
 const questionHistoryStorageKey = "qraft:question-history"
 const pendingSaveStorageKey = "qraft:pending-save"
 const currentResultStorageKey = "qraft:current-result"
@@ -254,15 +255,6 @@ export default function Hero() {
     }
   }, [supabase, user])
 
-  useEffect(() => {
-    if (!isLoading) return
-
-    const timer = window.setTimeout(() => setLoadingStep(1), refiningStepDuration)
-
-    return () => {
-      window.clearTimeout(timer)
-    }
-  }, [isLoading])
 
   useEffect(() => {
     if (!isReady || !lastSource || !summary || questions.length === 0) return
@@ -303,6 +295,8 @@ export default function Hero() {
     setLastSource(source)
     setGenerationState("loading")
 
+    const step1Timer = window.setTimeout(() => setLoadingStep(1), refiningStepDuration)
+
     try {
       const payloadPromise = fetch("/api/questions", {
         method: "POST",
@@ -318,12 +312,52 @@ export default function Hero() {
       setLoadingStep(2)
       await wait(3000)
 
+      window.clearTimeout(step1Timer)
       setSummary(payload.summary)
       setQuestions(payload.questions)
       setReflections(payload.reflections)
       await saveHistory(source, payload)
       setGenerationState("ready")
     } catch (error) {
+      window.clearTimeout(step1Timer)
+      console.error(error)
+      setGenerationState("error")
+    }
+  }
+
+  const runRegenerate = async () => {
+    if (!summary) return
+
+    gtag.regenerateQuestions()
+    setLoadingStep(0)
+    setQuestions([])
+    setReflections([])
+    setOpenReflectionIndexes(new Set())
+    setGenerationState("loading")
+
+    const step1Timer = window.setTimeout(() => setLoadingStep(1), regenerateStepDuration)
+
+    try {
+      const payloadPromise = fetch("/api/questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: lastSource, summary }),
+      }).then(async (response) => {
+        if (!response.ok) throw new Error("Regenerate API request failed")
+        return (await response.json()) as { questions: string[]; reflections: string[] }
+      })
+
+      const [payload] = await Promise.all([payloadPromise, wait(regenerateDuration)])
+
+      window.clearTimeout(step1Timer)
+      setLoadingStep(2)
+      await wait(3000)
+
+      setQuestions(payload.questions)
+      setReflections(payload.reflections)
+      setGenerationState("ready")
+    } catch (error) {
+      window.clearTimeout(step1Timer)
       console.error(error)
       setGenerationState("error")
     }
@@ -385,10 +419,7 @@ export default function Hero() {
   }
 
   const handleRegenerate = async () => {
-    if (!lastSource) return
-
-    gtag.regenerateQuestions()
-    await generateQuestions(lastSource)
+    await runRegenerate()
   }
 
   const saveQuestion = async (

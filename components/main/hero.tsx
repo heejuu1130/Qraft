@@ -803,7 +803,7 @@ export default function Hero() {
 
             <form
               onSubmit={handleSubmit}
-              className="pointer-events-auto mt-5 flex w-full max-w-2xl flex-col gap-3 drop-shadow-[0_18px_44px_rgba(18,11,7,0.42)] sm:flex-row sm:items-end"
+              className="pointer-events-auto mt-10 flex w-full max-w-2xl flex-col gap-3 drop-shadow-[0_18px_44px_rgba(18,11,7,0.42)] sm:flex-row sm:items-end"
               style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
             >
               <label className="flex flex-1 flex-col gap-2 text-left">

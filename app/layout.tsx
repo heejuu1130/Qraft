@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Qraft",
-  description: "Question Generator",
+  title: "Qraft - 질문으로 시작하는 사유",
+  description: "질문으로 시작하는 사유",
 };
 
 export default function RootLayout({

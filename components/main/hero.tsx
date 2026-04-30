@@ -256,7 +256,7 @@ export default function Hero() {
 
     const timers = [
       window.setTimeout(() => setLoadingStep(1), refiningStepDuration),
-      window.setTimeout(() => setLoadingStep(2), refiningStepDuration * 2),
+      window.setTimeout(() => setLoadingStep(2), refiningDuration + revealDuration - 3000),
     ]
 
     return () => {

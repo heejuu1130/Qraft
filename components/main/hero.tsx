@@ -151,7 +151,6 @@ export default function Hero() {
   const [savedQuestionKeys, setSavedQuestionKeys] = useState<Set<string>>(() => new Set())
   const [savedQuestionIds, setSavedQuestionIds] = useState<Map<string, string>>(() => new Map())
   const [showLogin, setShowLogin] = useState(false)
-  const [authErrorMessage, setAuthErrorMessage] = useState("")
   const summaryRef = useRef<HTMLParagraphElement>(null)
   const pendingSaveRestoredRef = useRef(false)
   const step1TimerRef = useRef<number | undefined>(undefined)
@@ -186,35 +185,6 @@ export default function Hero() {
     user?.user_metadata.nickname?.charAt(0) ??
     user?.email?.charAt(0) ??
     "Q"
-
-  const startOAuth = async (provider: "google" | "kakao") => {
-    setAuthErrorMessage("")
-    gtag.login(provider)
-
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/`,
-        skipBrowserRedirect: true,
-        ...(provider === "kakao" ? { scopes: "profile_nickname" } : {}),
-      },
-    })
-
-    if (error || !data.url) {
-      setAuthErrorMessage(error?.message ?? "로그인 주소를 만들지 못했습니다.")
-      return
-    }
-
-    window.location.assign(data.url)
-  }
-
-  const signInWithGoogle = async () => {
-    await startOAuth("google")
-  }
-
-  const signInWithKakao = async () => {
-    await startOAuth("kakao")
-  }
 
   const isLoading = generationState === "loading"
   const isReady = generationState === "ready"
@@ -689,16 +659,10 @@ export default function Hero() {
               style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}>
               질문 히스토리를 저장하려면 로그인하세요
             </p>
-            {authErrorMessage && (
-              <p className="mt-3 text-xs font-medium leading-[1.55] text-red-400/80">
-                {authErrorMessage}
-              </p>
-            )}
-
             <div className="mt-6 flex flex-col gap-3">
-              <button
-                type="button"
-                onClick={signInWithGoogle}
+              <Link
+                href="/auth/sign-in?provider=google&next=/"
+                onClick={() => gtag.login("google")}
                 className="flex h-11 w-full items-center justify-center gap-3 border border-[#d9ad73]/30 bg-[#f5dfbd]/10 px-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#f5dfbd]/80 transition-colors duration-300 hover:border-[#d9ad73]/60 hover:bg-[#f5dfbd]/15 focus:outline-none"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
@@ -708,18 +672,18 @@ export default function Hero() {
                   <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
                 </svg>
                 Continue with Google
-              </button>
+              </Link>
 
-              <button
-                type="button"
-                onClick={signInWithKakao}
+              <Link
+                href="/auth/sign-in?provider=kakao&next=/"
+                onClick={() => gtag.login("kakao")}
                 className="flex h-11 w-full items-center justify-center gap-3 border border-[#d9ad73]/30 bg-[#FEE500]/10 px-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#FEE500]/80 transition-colors duration-300 hover:border-[#FEE500]/40 hover:bg-[#FEE500]/15 focus:outline-none"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="#FEE500" aria-hidden="true">
                   <path d="M12 3C7.03 3 3 6.36 3 10.5c0 2.62 1.7 4.93 4.27 6.28L6.2 20.1a.5.5 0 0 0 .72.55l4.08-2.7c.33.03.67.05 1 .05 4.97 0 9-3.36 9-7.5S16.97 3 12 3z"/>
                 </svg>
                 Continue with Kakao
-              </button>
+              </Link>
             </div>
 
             <button

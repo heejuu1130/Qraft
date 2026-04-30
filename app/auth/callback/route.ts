@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server"
+import { getSiteOrigin } from "@/lib/site-url"
 import { createClient } from "@/lib/supabase/server"
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
+  const siteOrigin = getSiteOrigin(request, origin)
   const code = searchParams.get("code")
   const providerError = searchParams.get("error")
   const providerErrorCode = searchParams.get("error_code")
@@ -14,14 +16,7 @@ export async function GET(request: Request) {
   }
 
   const redirectTo = (path: string) => {
-    const forwardedHost = request.headers.get("x-forwarded-host")
-    const isLocalEnv = process.env.NODE_ENV === "development"
-
-    if (isLocalEnv || !forwardedHost) {
-      return NextResponse.redirect(`${origin}${path}`)
-    }
-
-    return NextResponse.redirect(`https://${forwardedHost}${path}`)
+    return NextResponse.redirect(`${siteOrigin}${path}`)
   }
 
   if (providerError) {

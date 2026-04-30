@@ -23,7 +23,6 @@
 # misc
 .DS_Store
 *.pem
-public/bgm.mp3
 
 # debug
 npm-debug.log*

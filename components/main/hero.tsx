@@ -139,15 +139,18 @@ const getInitialResultState = () => {
 }
 
 export default function Hero() {
-  const [generationState, setGenerationState] = useState<GenerationState>("idle")
+  const [initialResult] = useState(getInitialResultState)
+  const [generationState, setGenerationState] = useState<GenerationState>(() =>
+    initialResult ? "ready" : "idle"
+  )
   const [loadingStep, setLoadingStep] = useState(0)
-  const [summary, setSummary] = useState("")
+  const [summary, setSummary] = useState(() => initialResult?.summary ?? "")
   const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [summaryOverflowing, setSummaryOverflowing] = useState(false)
-  const [questions, setQuestions] = useState<string[]>([])
-  const [reflections, setReflections] = useState<string[]>([])
+  const [questions, setQuestions] = useState<string[]>(() => initialResult?.questions ?? [])
+  const [reflections, setReflections] = useState<string[]>(() => initialResult?.reflections ?? [])
   const [openReflectionIndexes, setOpenReflectionIndexes] = useState<Set<number>>(() => new Set())
-  const [lastSource, setLastSource] = useState("")
+  const [lastSource, setLastSource] = useState(() => initialResult?.source ?? "")
   const [savedQuestionKeys, setSavedQuestionKeys] = useState<Set<string>>(() => new Set())
   const [savedQuestionIds, setSavedQuestionIds] = useState<Map<string, string>>(() => new Map())
   const [showLogin, setShowLogin] = useState(false)
@@ -156,14 +159,6 @@ export default function Hero() {
   const step1TimerRef = useRef<number | undefined>(undefined)
 
   useEffect(() => {
-    const result = getInitialResultState()
-    if (result) {
-      setSummary(result.summary)
-      setQuestions(result.questions)
-      setReflections(result.reflections)
-      setLastSource(result.source)
-      setGenerationState("ready")
-    }
     return () => { window.clearTimeout(step1TimerRef.current) }
   }, [])
   const supabase = useMemo(() => createClient(), [])

@@ -2,7 +2,7 @@
 
 import { MeshGradient } from "@paper-design/shaders-react"
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 
 const desert = {
@@ -13,12 +13,11 @@ const desert = {
 
 export default function AuthPage() {
     const supabase = createClient()
-    const [hasError, setHasError] = useState(false)
-
-    useEffect(() => {
+    const [hasError] = useState(() => {
+        if (typeof window === "undefined") return false
         const params = new URLSearchParams(window.location.search)
-        setHasError(params.get("error") === "auth_failed")
-    }, [])
+        return params.get("error") === "auth_failed"
+    })
 
     const signInWithGoogle = async () => {
         await supabase.auth.signInWithOAuth({

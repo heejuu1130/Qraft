@@ -89,7 +89,7 @@ async function fetchViaJina(url: string): Promise<string> {
 
   const response = await fetch(`https://r.jina.ai/${url}`, {
     headers,
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(8000),
   })
 
   if (!response.ok) {
@@ -111,7 +111,7 @@ async function searchViaJina(query: string): Promise<string> {
 
   const response = await fetch(`https://s.jina.ai/${encodeURIComponent(query)}`, {
     headers,
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(6000),
   })
 
   if (!response.ok) {

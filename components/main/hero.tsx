@@ -254,13 +254,10 @@ export default function Hero() {
   useEffect(() => {
     if (!isLoading) return
 
-    const timers = [
-      window.setTimeout(() => setLoadingStep(1), refiningStepDuration),
-      window.setTimeout(() => setLoadingStep(2), refiningDuration + revealDuration - 3000),
-    ]
+    const timer = window.setTimeout(() => setLoadingStep(1), refiningStepDuration)
 
     return () => {
-      timers.forEach((timer) => window.clearTimeout(timer))
+      window.clearTimeout(timer)
     }
   }, [isLoading])
 
@@ -303,17 +300,19 @@ export default function Hero() {
     setGenerationState("loading")
 
     try {
-      const [payload] = await Promise.all([
-        fetch("/api/questions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source }),
-        }).then(async (response) => {
-          if (!response.ok) throw new Error("Question API request failed")
-          return (await response.json()) as QuestionPayload
-        }),
-        wait(refiningDuration + revealDuration),
-      ])
+      const payloadPromise = fetch("/api/questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source }),
+      }).then(async (response) => {
+        if (!response.ok) throw new Error("Question API request failed")
+        return (await response.json()) as QuestionPayload
+      })
+
+      const [payload] = await Promise.all([payloadPromise, wait(refiningDuration)])
+
+      setLoadingStep(2)
+      await wait(3000)
 
       setSummary(payload.summary)
       setQuestions(payload.questions)

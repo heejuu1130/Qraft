@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { getSiteOrigin } from "@/lib/site-url"
-import { createClient } from "@/lib/supabase/server"
+import { createRouteClient } from "@/lib/supabase/route"
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
@@ -15,9 +15,9 @@ export async function GET(request: Request) {
     next = "/"
   }
 
-  const redirectTo = (path: string) => {
-    return NextResponse.redirect(`${siteOrigin}${path}`)
-  }
+  const { supabase, applyCookies } = await createRouteClient()
+
+  const redirectTo = (path: string) => applyCookies(NextResponse.redirect(`${siteOrigin}${path}`))
 
   if (providerError) {
     console.error(
@@ -42,7 +42,6 @@ export async function GET(request: Request) {
   }
 
   if (code) {
-    const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) {
       console.error("Auth callback error:", error.message)

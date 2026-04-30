@@ -49,7 +49,7 @@ export default function AuthPage() {
                         className="mt-3 text-sm font-medium leading-[1.6] text-[#f5dfbd]/60"
                         style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                     >
-                        질문 히스토리를 저장하려면 로그인하세요
+                        질문 히스토리를 저장하시려면 로그인하세요
                     </p>
                     {hasError && (
                         <div className="mt-3 space-y-1">

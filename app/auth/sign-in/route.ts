@@ -1,7 +1,7 @@
 import type { Provider } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 import { getSiteOrigin } from "@/lib/site-url"
-import { createClient } from "@/lib/supabase/server"
+import { createRouteClient } from "@/lib/supabase/route"
 
 const supportedProviders = new Set(["google", "kakao"])
 
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
   const callbackUrl = new URL("/auth/callback", origin)
   callbackUrl.searchParams.set("next", next)
 
-  const supabase = await createClient()
+  const { supabase, applyCookies } = await createRouteClient()
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: provider as Provider,
     options: {
@@ -37,8 +37,8 @@ export async function GET(request: Request) {
       message: error?.message ?? "로그인 주소를 만들지 못했습니다.",
     })
 
-    return NextResponse.redirect(`${origin}/auth?${params.toString()}`)
+    return applyCookies(NextResponse.redirect(`${origin}/auth?${params.toString()}`))
   }
 
-  return NextResponse.redirect(data.url)
+  return applyCookies(NextResponse.redirect(data.url))
 }

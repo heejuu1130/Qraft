@@ -2,6 +2,7 @@
 
 import { MeshGradient } from "@paper-design/shaders-react"
 import Link from "next/link"
+import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 
 const desert = {
@@ -12,6 +13,12 @@ const desert = {
 
 export default function AuthPage() {
     const supabase = createClient()
+    const [hasError, setHasError] = useState(false)
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search)
+        setHasError(params.get("error") === "auth_failed")
+    }, [])
 
     const signInWithGoogle = async () => {
         await supabase.auth.signInWithOAuth({
@@ -25,7 +32,7 @@ export default function AuthPage() {
             provider: "kakao",
             options: {
                 redirectTo: `${window.location.origin}/auth/callback`,
-                scopes: "profile_nickname account_email"
+                scopes: "profile_nickname",
             },
         });
     };
@@ -55,6 +62,11 @@ export default function AuthPage() {
                     >
                         질문 히스토리를 저장하려면 로그인하세요
                     </p>
+                    {hasError && (
+                        <p className="mt-3 text-xs font-medium text-red-400/80">
+                            로그인에 실패했습니다. 다시 시도해주세요.
+                        </p>
+                    )}
 
                     <div className="mt-6 flex flex-col gap-3">
                         <button

@@ -785,7 +785,7 @@ export default function Hero() {
         style={{ fontFamily: '"Outfit", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
       >
         {generationState === "idle" && (
-          <div className="flex flex-col items-center">
+          <div className="flex w-full flex-col items-center">
             <h1 className="relative text-5xl font-medium leading-[1.1] tracking-normal drop-shadow-[0_8px_28px_rgba(13,8,5,0.28)] sm:text-[64px]">
               <span className="text-[#f5dfbd]/90 mix-blend-difference">Qraft</span>
               <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2] mix-blend-overlay">
@@ -803,7 +803,7 @@ export default function Hero() {
 
             <form
               onSubmit={handleSubmit}
-              className="pointer-events-auto mt-20 flex w-full max-w-2xl flex-col gap-3 drop-shadow-[0_18px_44px_rgba(18,11,7,0.42)] sm:flex-row sm:items-end"
+              className="pointer-events-auto mt-[60px] flex w-full max-w-2xl flex-col gap-3 drop-shadow-[0_18px_44px_rgba(18,11,7,0.42)] sm:flex-row sm:items-end"
               style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
             >
               <label className="flex flex-1 flex-col gap-2 text-left">

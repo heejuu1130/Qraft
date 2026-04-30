@@ -2,7 +2,7 @@
 
 import { MeshGradient } from "@paper-design/shaders-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 
 const desert = {
@@ -13,16 +13,20 @@ const desert = {
 
 export default function AuthPage() {
     const supabase = createClient()
-    const [hasError] = useState(() => {
-        if (typeof window === "undefined") return false
-        const params = new URLSearchParams(window.location.search)
-        return params.has("error")
-    })
-    const [errorMessage] = useState(() => {
-        if (typeof window === "undefined") return ""
-        const params = new URLSearchParams(window.location.search)
-        return params.get("message") ?? ""
-    })
+    const [hasError, setHasError] = useState(false)
+    const [errorCode, setErrorCode] = useState("")
+    const [errorMessage, setErrorMessage] = useState("")
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            const params = new URLSearchParams(window.location.search)
+            setHasError(params.has("error"))
+            setErrorCode(params.get("code") ?? params.get("error") ?? "")
+            setErrorMessage(params.get("message") ?? "")
+        }, 0)
+
+        return () => window.clearTimeout(timer)
+    }, [])
 
     const signInWithGoogle = async () => {
         await supabase.auth.signInWithOAuth({
@@ -67,9 +71,16 @@ export default function AuthPage() {
                         질문 히스토리를 저장하려면 로그인하세요
                     </p>
                     {hasError && (
-                        <p className="mt-3 text-xs font-medium text-red-400/80">
-                            {errorMessage || "로그인에 실패했습니다. 다시 시도해주세요."}
-                        </p>
+                        <div className="mt-3 space-y-1">
+                            <p className="text-xs font-medium text-red-400/80">
+                                {errorMessage || "로그인에 실패했습니다. 다시 시도해주세요."}
+                            </p>
+                            {errorCode && (
+                                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-red-300/45">
+                                    {errorCode}
+                                </p>
+                            )}
+                        </div>
                     )}
 
                     <div className="mt-6 flex flex-col gap-3">

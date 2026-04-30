@@ -5,6 +5,7 @@ export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get("code")
   const providerError = searchParams.get("error")
+  const providerErrorCode = searchParams.get("error_code")
   const providerErrorDescription = searchParams.get("error_description")
   let next = searchParams.get("next") ?? "/"
 
@@ -24,10 +25,19 @@ export async function GET(request: Request) {
   }
 
   if (providerError) {
-    console.error("Auth provider error:", providerError, providerErrorDescription ?? "")
+    console.error(
+      "Auth provider error:",
+      providerError,
+      providerErrorCode ?? "",
+      providerErrorDescription ?? ""
+    )
     const params = new URLSearchParams({
       error: providerError,
     })
+
+    if (providerErrorCode) {
+      params.set("code", providerErrorCode)
+    }
 
     if (providerErrorDescription) {
       params.set("message", providerErrorDescription)
@@ -41,7 +51,16 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) {
       console.error("Auth callback error:", error.message)
-      return redirectTo(`/auth?error=auth_failed&message=${encodeURIComponent(error.message)}`)
+      const params = new URLSearchParams({
+        error: "auth_failed",
+        message: error.message,
+      })
+
+      if ("code" in error && typeof error.code === "string") {
+        params.set("code", error.code)
+      }
+
+      return redirectTo(`/auth?${params.toString()}`)
     }
 
     return redirectTo(next)

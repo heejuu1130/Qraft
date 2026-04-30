@@ -154,7 +154,7 @@ export default function ProfilePage() {
     "Q"
 
   useEffect(() => {
-    gtag.viewProfileHistory()
+    gtag.profileHistoryView()
   }, [])
 
   useEffect(() => {

@@ -68,7 +68,7 @@ export default function AuthPage() {
                     <div className="mt-6 flex flex-col gap-3">
                         <Link
                             href="/auth/sign-in?provider=google&next=/"
-                            onClick={() => gtag.login("google")}
+                            onClick={() => gtag.loginStart("google")}
                             className="flex h-11 w-full items-center justify-center gap-3 border border-[#d9ad73]/30 bg-[#f5dfbd]/10 px-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#f5dfbd]/80 transition-colors duration-300 hover:border-[#d9ad73]/60 hover:bg-[#f5dfbd]/15 focus:outline-none"
                         >
                             <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
@@ -82,7 +82,7 @@ export default function AuthPage() {
 
                         <Link
                             href="/auth/sign-in?provider=kakao&next=/"
-                            onClick={() => gtag.login("kakao")}
+                            onClick={() => gtag.loginStart("kakao")}
                             className="flex h-11 w-full items-center justify-center gap-3 border border-[#d9ad73]/30 bg-[#FEE500]/10 px-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#FEE500]/80 transition-colors duration-300 hover:border-[#FEE500]/40 hover:bg-[#FEE500]/15 focus:outline-none"
                         >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="#FEE500" aria-hidden="true">

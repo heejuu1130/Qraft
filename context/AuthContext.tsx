@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import type { Session, User } from "@supabase/supabase-js"
+import { gtag, type LoginProvider } from "@/lib/gtag"
 import { createClient } from "@/lib/supabase/client"
 
 type AuthContextType = {
@@ -18,6 +19,42 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
 })
 
+const pendingLoginProviderStorageKey = "qraft:pending-login-provider"
+const visitedStorageKey = "qraft:ga-visited"
+const returningVisitSentStorageKey = "qraft:ga-returning-visit-sent"
+
+const isLoginProvider = (value: unknown): value is LoginProvider =>
+  value === "google" || value === "kakao"
+
+const trackPendingLoginSuccess = (session: Session | null) => {
+  if (!session) return
+
+  const pendingProvider = window.localStorage.getItem(pendingLoginProviderStorageKey)
+  const sessionProvider = session.user.app_metadata.provider
+  const provider = isLoginProvider(pendingProvider)
+    ? pendingProvider
+    : isLoginProvider(sessionProvider)
+      ? sessionProvider
+      : null
+
+  if (!provider) return
+
+  gtag.loginSuccess(provider)
+  window.localStorage.removeItem(pendingLoginProviderStorageKey)
+}
+
+const trackReturningVisit = () => {
+  const hasVisited = window.localStorage.getItem(visitedStorageKey) === "true"
+  const alreadySent = window.sessionStorage.getItem(returningVisitSentStorageKey) === "true"
+
+  if (hasVisited && !alreadySent) {
+    gtag.returningVisit()
+    window.sessionStorage.setItem(returningVisitSentStorageKey, "true")
+  }
+
+  window.localStorage.setItem(visitedStorageKey, "true")
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
@@ -25,13 +62,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
+    trackReturningVisit()
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      trackPendingLoginSuccess(session)
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN") {
+        trackPendingLoginSuccess(session)
+      }
+
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)

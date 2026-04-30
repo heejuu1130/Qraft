@@ -77,6 +77,28 @@ async function fetchViaJina(url: string): Promise<string> {
   return text.slice(0, 8000)
 }
 
+async function searchViaJina(query: string): Promise<string> {
+  const headers: HeadersInit = {
+    Accept: "text/plain",
+  }
+
+  if (process.env.JINA_API_KEY) {
+    headers.Authorization = `Bearer ${process.env.JINA_API_KEY}`
+  }
+
+  const response = await fetch(`https://s.jina.ai/${encodeURIComponent(query)}`, {
+    headers,
+    signal: AbortSignal.timeout(15000),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Jina 검색 실패: ${response.status}`)
+  }
+
+  const text = await response.text()
+  return text.slice(0, 8000)
+}
+
 const FALLBACK_QUESTIONS = [
   "지금 가장 먼저 확인해야 할 쟁점은 무엇인가요?",
   "이 문제를 바라보는 우리의 전제는 충분히 타당한가요?",
@@ -116,6 +138,12 @@ export async function POST(request: Request) {
   if (isUrl(source)) {
     try {
       content = await fetchViaJina(source)
+    } catch {
+      content = source
+    }
+  } else if (source.length < 100) {
+    try {
+      content = await searchViaJina(source)
     } catch {
       content = source
     }

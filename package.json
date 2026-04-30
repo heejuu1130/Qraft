@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
+    "@next/third-parties": "^16.2.4",
     "@paper-design/shaders-react": "^0.0.76",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.105.1",

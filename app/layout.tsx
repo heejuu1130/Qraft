@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { GoogleAnalytics } from "@next/third-parties/google";
 import { AuthProvider } from "@/context/AuthContext";
 import { BgmProvider } from "@/context/BgmContext";
 import "./globals.css";
@@ -34,6 +35,7 @@ export default function RootLayout({
           <BgmProvider>{children}</BgmProvider>
         </AuthProvider>
       </body>
+      <GoogleAnalytics gaId="G-T3TCC34TS8" />
     </html>
   );
 }

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useAuth } from "@/context/AuthContext"
 import { useBgm } from "@/context/BgmContext"
 import { createClient } from "@/lib/supabase/client"
+import { gtag } from "@/lib/gtag"
 
 type SavedQuestion = {
   id: string
@@ -151,6 +152,10 @@ export default function ProfilePage() {
     user?.user_metadata.nickname?.charAt(0) ??
     user?.email?.charAt(0) ??
     "Q"
+
+  useEffect(() => {
+    gtag.viewProfileHistory()
+  }, [])
 
   useEffect(() => {
     let cancelled = false

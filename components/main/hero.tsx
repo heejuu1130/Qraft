@@ -6,6 +6,7 @@ import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/context/AuthContext"
 import { useBgm } from "@/context/BgmContext"
+import { gtag } from "@/lib/gtag"
 
 const desert = {
   background: "#120b07",
@@ -168,6 +169,7 @@ export default function Hero() {
     "Q"
 
   const signInWithGoogle = async () => {
+    gtag.login("google")
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: `${window.location.origin}/auth/callback` },
@@ -175,6 +177,7 @@ export default function Hero() {
   }
 
   const signInWithKakao = async () => {
+    gtag.login("kakao")
     await supabase.auth.signInWithOAuth({
       provider: "kakao",
       options: {
@@ -289,6 +292,7 @@ export default function Hero() {
   }, [summary, summaryExpanded, isReady])
 
   const generateQuestions = async (source: string) => {
+    gtag.generateQuestions()
     setLoadingStep(0)
     setSummary("")
     setSummaryExpanded(false)
@@ -383,6 +387,7 @@ export default function Hero() {
   const handleRegenerate = async () => {
     if (!lastSource) return
 
+    gtag.regenerateQuestions()
     await generateQuestions(lastSource)
   }
 
@@ -422,6 +427,7 @@ export default function Hero() {
         return
       }
 
+      gtag.removeSavedQuestion()
       setSavedQuestionKeys((currentKeys) => {
         const nextKeys = new Set(currentKeys)
         nextKeys.delete(questionKey)
@@ -449,6 +455,7 @@ export default function Hero() {
         return
       }
 
+      gtag.saveQuestion()
       setSavedQuestionKeys((currentKeys) => new Set(currentKeys).add(questionKey))
       if (data && typeof data.id === "string") {
         setSavedQuestionIds((currentIds) => new Map(currentIds).set(questionKey, data.id))

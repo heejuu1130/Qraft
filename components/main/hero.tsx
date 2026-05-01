@@ -14,6 +14,8 @@ const desert = {
   sand: "#efd3a2",
 }
 
+const silentRecordColors = ["#071613", "#123027", "#526f57", "#d8c3a4"]
+
 const loadingMessages = [
   "텍스트의 뼈대를 추리고 있습니다.",
   "이면에 숨겨진 질문을 직조하는 중입니다.",
@@ -42,7 +44,106 @@ const structureDots = [
   { x: "2px", y: "70px", delay: "1800ms" },
 ]
 
+const phaseCards = [
+  {
+    phase: "Phase 01.",
+    title: "투영",
+    label: "Projection",
+    tone: "qraft-phase-card-01",
+    copy: "당신의 관심을 끄는 링크나 단어를 놓아둡니다. 그것은 사유의 설계도가 됩니다.",
+  },
+  {
+    phase: "Phase 02.",
+    title: "균열",
+    label: "The Glitch",
+    tone: "qraft-phase-card-02",
+    copy: "질문 엔진이 텍스트의 이면을 파고듭니다. 당연함이 깨지는 지점에서 생각은 시작됩니다.",
+  },
+  {
+    phase: "Phase 03.",
+    title: "퇴적",
+    label: "Sedimentation",
+    tone: "qraft-phase-card-03",
+    copy: "방대한 콘텐츠는 정제된 요약으로 응축되고, 그 아래 질문이 놓입니다. 때때로 타인이 남긴 사유의 흔적을 엿보며, 당신의 관점은 더욱 단단하게 층을 이룹니다.",
+  },
+]
+
+const landingTitle = "Qraft"
+const landingCopy = "답이 아니라 질문이 사람을 깊게 만듭니다"
+const ownershipQuestionLines = [
+  "정보를 '가진' 사람입니까,",
+  "정보로 '변화'하는 사람입니까?",
+]
+const ownershipBody =
+  "김익한 교수는 독서의 본질이 '정보의 소유'가 아닌 '존재의 변화'에 있다고 말합니다. 우리는 매일 수많은 링크와 아티클을 수집하며 지적 포만감을 느끼지만, 멈춰서 사유하지 않는 정보는 결코 내 것이 되지 못한 채 쌓여가는 부채가 될 뿐입니다."
+const ownershipQuote =
+  "\"소유적 소비는 나를 채우는 듯하나 사실은 나를 지우고, 존재적 사유는 나를 흔들어 비로소 나를 세웁니다.\""
+const ownershipClosing =
+  "Qraft는 이 철학을 바탕으로 설계되었습니다. 단순히 정보를 저장하는 관성을 잠시 멈추고, 텍스트와 대면하여 당신이라는 존재가 확장되는 '존재적 기록'의 순간을 제공합니다."
+
+const dustMotions = [
+  { dx: "-0.018em", dy: "0.014em", scale: 0.998 },
+  { dx: "0.016em", dy: "-0.012em", scale: 1.003 },
+  { dx: "0.006em", dy: "0.018em", scale: 0.999 },
+  { dx: "-0.011em", dy: "-0.014em", scale: 1.002 },
+  { dx: "0.021em", dy: "0.005em", scale: 0.999 },
+  { dx: "-0.007em", dy: "0.008em", scale: 1.001 },
+]
+
+const getDustStyle = (index: number, baseDelay: number, step = 28) => {
+  const motion = dustMotions[index % dustMotions.length]
+
+  return {
+    "--delay": `${baseDelay + index * step}ms`,
+    "--dx": motion.dx,
+    "--dy": motion.dy,
+    "--scale": motion.scale,
+  } as CSSProperties
+}
+
+function LandingDustText({
+  text,
+  shouldAnimate,
+  delay,
+  step,
+  decorative = false,
+}: {
+  text: string
+  shouldAnimate: boolean
+  delay: number
+  step?: number
+  decorative?: boolean
+}) {
+  return (
+    <span
+      aria-hidden={decorative ? true : undefined}
+      aria-label={!decorative && shouldAnimate ? text : undefined}
+      className="qraft-landing-dust"
+    >
+      {shouldAnimate
+        ? Array.from(text).map((character, index) =>
+            character === " " ? (
+              <span aria-hidden="true" className="qraft-landing-dust-space" key={`${character}-${index}`}>
+                &nbsp;
+              </span>
+            ) : (
+              <span
+                aria-hidden="true"
+                className="qraft-landing-dust-grain"
+                key={`${character}-${index}`}
+                style={getDustStyle(index, delay, step)}
+              >
+                {character}
+              </span>
+            )
+          )
+        : text}
+    </span>
+  )
+}
+
 type GenerationState = "idle" | "loading" | "ready" | "error"
+type LandingIntroPhase = "waiting" | "playing" | "settled"
 
 type QuestionPayload = {
   summary: string
@@ -147,6 +248,8 @@ const getInitialResultState = () => {
   }
 }
 
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+
 export default function Hero() {
   const [generationState, setGenerationState] = useState<GenerationState>("idle")
   const [loadingStep, setLoadingStep] = useState(0)
@@ -160,7 +263,12 @@ export default function Hero() {
   const [savedQuestionKeys, setSavedQuestionKeys] = useState<Set<string>>(() => new Set())
   const [savedQuestionIds, setSavedQuestionIds] = useState<Map<string, string>>(() => new Map())
   const [showLogin, setShowLogin] = useState(false)
+  const [landingIntroPhase, setLandingIntroPhase] = useState<LandingIntroPhase>("waiting")
+  const [silentSectionActive, setSilentSectionActive] = useState(false)
   const summaryRef = useRef<HTMLParagraphElement>(null)
+  const philosophySectionRef = useRef<HTMLElement>(null)
+  const ownershipChangeLineRef = useRef<HTMLSpanElement>(null)
+  const silentSectionRef = useRef<HTMLElement>(null)
   const pendingSaveRestoredRef = useRef(false)
   const step1TimerRef = useRef<number | undefined>(undefined)
 
@@ -197,6 +305,16 @@ export default function Hero() {
 
   const isLoading = generationState === "loading"
   const isReady = generationState === "ready"
+  const isLanding = generationState === "idle"
+  const currentLandingIntroPhase = landingIntroPhase as string
+  const normalizedLandingIntroPhase: LandingIntroPhase =
+    currentLandingIntroPhase === "waiting" ||
+    currentLandingIntroPhase === "playing" ||
+    currentLandingIntroPhase === "settled"
+      ? (currentLandingIntroPhase as LandingIntroPhase)
+      : "waiting"
+  const shouldPlayLandingIntro = normalizedLandingIntroPhase === "playing"
+  const shouldHideLandingIntro = normalizedLandingIntroPhase === "waiting"
   const isRevealing = isLoading && loadingStep === 2
   const isRefined = isLoading || isReady
   const speed = isRefined ? 0.25 : 0.5
@@ -210,8 +328,88 @@ export default function Hero() {
 
   const resetToIdle = () => {
     window.sessionStorage.removeItem(currentResultStorageKey)
+    setLandingIntroPhase("settled")
     setGenerationState("idle")
   }
+
+  useEffect(() => {
+    if (!isLanding || normalizedLandingIntroPhase !== "waiting") return
+
+    const startTimer = window.setTimeout(() => {
+      setLandingIntroPhase("playing")
+    }, 120)
+    const settleTimer = window.setTimeout(() => {
+      setLandingIntroPhase("settled")
+    }, 3800)
+
+    return () => {
+      window.clearTimeout(startTimer)
+      window.clearTimeout(settleTimer)
+    }
+  }, [isLanding, normalizedLandingIntroPhase])
+
+  useEffect(() => {
+    if (!isLanding) return
+
+    const silentSection = silentSectionRef.current
+    if (!silentSection || !("IntersectionObserver" in window)) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setSilentSectionActive(entry.isIntersecting && entry.intersectionRatio > 0.18)
+      },
+      {
+        rootMargin: "-18% 0px -28% 0px",
+        threshold: [0, 0.18, 0.45],
+      }
+    )
+
+    observer.observe(silentSection)
+
+    return () => observer.disconnect()
+  }, [isLanding])
+
+
+  useEffect(() => {
+    if (!isLanding) return
+
+    const philosophySection = philosophySectionRef.current
+    const ownershipChangeLine = ownershipChangeLineRef.current
+    if (!philosophySection || !ownershipChangeLine) return
+
+    let frameId: number | undefined
+
+    const updateOwnershipShift = () => {
+      frameId = undefined
+
+      const changeLineRect = ownershipChangeLine.getBoundingClientRect()
+      const viewportHeight = window.innerHeight
+      const switchLine = viewportHeight * 0.53
+      const changeLineCenter = changeLineRect.top + changeLineRect.height / 2
+      const transitionDistance = viewportHeight * 0.15
+      const progress = clamp((switchLine - changeLineCenter) / transitionDistance, 0, 1)
+
+      philosophySection.style.setProperty("--ownership-shift", progress.toFixed(3))
+    }
+
+    const queueOwnershipShift = () => {
+      if (frameId !== undefined) return
+      frameId = window.requestAnimationFrame(updateOwnershipShift)
+    }
+
+    queueOwnershipShift()
+    window.addEventListener("scroll", queueOwnershipShift, { passive: true })
+    window.addEventListener("resize", queueOwnershipShift)
+
+    return () => {
+      window.removeEventListener("scroll", queueOwnershipShift)
+      window.removeEventListener("resize", queueOwnershipShift)
+
+      if (frameId !== undefined) {
+        window.cancelAnimationFrame(frameId)
+      }
+    }
+  }, [isLanding])
 
   useEffect(() => {
     let cancelled = false
@@ -620,7 +818,13 @@ export default function Hero() {
   }
 
   return (
-    <div className="relative h-screen w-full overflow-hidden bg-[#120b07]">
+    <div
+      className={
+        isLanding
+          ? "relative min-h-screen w-full overflow-x-hidden bg-[#120b07]"
+          : "relative h-screen w-full overflow-hidden bg-[#120b07]"
+      }
+    >
       {/* 우측 상단 로그인/로그아웃 */}
       <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
         {user ? (
@@ -757,12 +961,19 @@ export default function Hero() {
 
       {/* 배경 그라디언트 */}
       <div
-        className={`absolute inset-0 transition-[filter,transform] duration-[1600ms] ease-in-out ${backgroundTreatment}`}
+        className={`${isLanding ? "fixed" : "absolute"} inset-0 transition-[filter,transform] duration-[1600ms] ease-in-out ${backgroundTreatment}`}
       >
         <MeshGradient
           className="absolute inset-0 h-full w-full"
           colors={[desert.background, "#2a170e", desert.ember, desert.sand]}
           speed={speed}
+        />
+        <MeshGradient
+          className={`absolute inset-0 h-full w-full transition-opacity duration-[1400ms] ease-in-out ${
+            isLanding && silentSectionActive ? "opacity-100" : "opacity-0"
+          }`}
+          colors={silentRecordColors}
+          speed={speed * 0.85}
         />
 
         <div className="pointer-events-none absolute inset-0">
@@ -783,63 +994,201 @@ export default function Hero() {
 
       {/* 오버레이 */}
       <div
-        className={`pointer-events-none absolute inset-0 transition-colors duration-[1600ms] ease-in-out ${
+        className={`pointer-events-none ${isLanding ? "fixed" : "absolute"} inset-0 transition-colors duration-[1600ms] ease-in-out ${
           isReady ? "bg-[#120b07]/84" : isRevealing ? "bg-[#120b07]/68" : "bg-[#120b07]/35"
         }`}
       />
 
       {/* 메인 콘텐츠 */}
       <div
-        className={`pointer-events-none absolute inset-0 z-10 flex flex-col items-center px-6 text-center ${
-          isReady ? "justify-center overflow-hidden py-6 sm:justify-start sm:overflow-y-auto sm:py-24" : "justify-center"
-        }`}
+        className={
+          isLanding
+            ? "relative z-10 flex min-h-screen flex-col items-center text-center"
+            : `pointer-events-none absolute inset-0 z-10 flex flex-col items-center px-6 text-center ${
+                isReady ? "justify-start overflow-hidden py-20 sm:overflow-y-auto sm:py-24" : "justify-center"
+              }`
+        }
         style={{ fontFamily: '"Outfit", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
       >
         {generationState === "idle" && (
-          <div className="flex w-full flex-col items-center mb-[12vh]">
-            <h1 className="relative text-5xl font-medium leading-[1.1] tracking-normal drop-shadow-[0_8px_28px_rgba(13,8,5,0.28)] sm:text-[64px]">
-              <span className="text-[#f5dfbd]/90 mix-blend-difference">Qraft</span>
-              <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2] mix-blend-overlay">
-                Qraft
-              </span>
-            </h1>
-            <p className="relative mt-3 max-w-2xl text-sm font-medium leading-[1.7] tracking-normal sm:text-lg">
-              <span className="text-[#f5dfbd]/65 mix-blend-difference">
-                답이 아니라 질문이 사람을 깊게 만듭니다
-              </span>
-              <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2]/70 mix-blend-overlay">
-                답이 아니라 질문이 사람을 깊게 만듭니다
-              </span>
-            </p>
-
-            <form
-              onSubmit={handleSubmit}
-              className="pointer-events-auto mt-[54px] flex w-full max-w-2xl flex-col gap-3 drop-shadow-[0_18px_44px_rgba(18,11,7,0.42)] sm:flex-row sm:items-end"
-              style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
-            >
-              <label className="flex flex-1 flex-col gap-2 text-left">
-                <span className="relative font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em]">
-                  <span className="text-[#f5dfbd]/70 mix-blend-difference">Link / Topic</span>
-                  <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2]/80 mix-blend-overlay">
-                    Link / Topic
+          <>
+            <section className="flex min-h-screen w-full flex-col items-center justify-center px-6 pb-[12vh] pt-24">
+              <div className="flex w-full flex-col items-center">
+                <h1
+                  className={`relative text-5xl font-medium leading-[1.1] tracking-normal drop-shadow-[0_8px_28px_rgba(13,8,5,0.28)] sm:text-[64px] ${
+                    shouldHideLandingIntro ? "opacity-0" : "opacity-100"
+                  }`}
+                >
+                  <span className="text-[#f5dfbd]/90 mix-blend-difference">
+                    <LandingDustText delay={360} shouldAnimate={shouldPlayLandingIntro} step={58} text={landingTitle} />
                   </span>
-                </span>
-                <input
-                  type="text"
-                  name="source"
-                  placeholder="링크 또는 주제를 입력해주세요"
-                  className="h-12 rounded-none border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.16] px-4 text-lg font-normal text-[#f5dfbd]/90 shadow-[0_10px_30px_rgba(13,8,5,0.32)] outline-none backdrop-blur-md transition-colors duration-700 placeholder:text-[#efd3a2]/70 focus:border-[#d9ad73]/55 focus:bg-[#f5dfbd]/[0.19] [&::placeholder]:text-sm"
-                />
-              </label>
+                  <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2] mix-blend-overlay">
+                    <LandingDustText
+                      decorative
+                      delay={360}
+                      shouldAnimate={shouldPlayLandingIntro}
+                      step={58}
+                      text={landingTitle}
+                    />
+                  </span>
+                </h1>
+                <p
+                  className={`relative mt-3 max-w-2xl text-sm font-medium leading-[1.7] tracking-normal sm:text-lg ${
+                    shouldHideLandingIntro ? "opacity-0" : "opacity-100"
+                  }`}
+                >
+                  <span className="text-[#f5dfbd]/65 mix-blend-difference">
+                    <LandingDustText delay={780} shouldAnimate={shouldPlayLandingIntro} text={landingCopy} />
+                  </span>
+                  <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2]/70 mix-blend-overlay">
+                    <LandingDustText
+                      decorative
+                      delay={780}
+                      shouldAnimate={shouldPlayLandingIntro}
+                      text={landingCopy}
+                    />
+                  </span>
+                </p>
 
-              <button
-                type="submit"
-                className="h-12 w-full border border-[#d9ad73]/40 bg-[#f5dfbd]/20 px-5 font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-[#f5dfbd]/85 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-700 hover:border-[#efd3a2]/90 hover:bg-[#8d4f31]/35 hover:text-[#fff4dc] active:border-[#efd3a2] active:bg-[#8d4f31]/50 active:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/90 sm:w-24"
-              >
-                입력
-              </button>
-            </form>
-          </div>
+                <form
+                  onSubmit={handleSubmit}
+                  className={`${
+                    shouldHideLandingIntro
+                      ? "opacity-0"
+                      : shouldPlayLandingIntro
+                        ? "qraft-landing-form"
+                        : "opacity-100"
+                  } pointer-events-auto mt-[54px] flex w-full max-w-2xl flex-col gap-3 drop-shadow-[0_18px_44px_rgba(18,11,7,0.42)] sm:flex-row sm:items-end`}
+                  style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
+                >
+                  <label className="flex flex-1 flex-col gap-2 text-left">
+                    <span className="relative font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em]">
+                      <span className="text-[#f5dfbd]/70 mix-blend-difference">Link / Topic</span>
+                      <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2]/80 mix-blend-overlay">
+                        Link / Topic
+                      </span>
+                    </span>
+                    <input
+                      type="text"
+                      name="source"
+                      placeholder="링크 또는 주제를 입력해주세요"
+                      className="h-12 rounded-none border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.16] px-4 text-lg font-normal text-[#f5dfbd]/90 shadow-[0_10px_30px_rgba(13,8,5,0.32)] outline-none backdrop-blur-md transition-colors duration-700 placeholder:text-[#efd3a2]/70 focus:border-[#d9ad73]/55 focus:bg-[#f5dfbd]/[0.19] [&::placeholder]:text-sm"
+                    />
+                  </label>
+
+                  <button
+                    type="submit"
+                    className="h-12 w-full border border-[#d9ad73]/40 bg-[#f5dfbd]/20 px-5 font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-[#f5dfbd]/85 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-700 hover:border-[#efd3a2]/90 hover:bg-[#8d4f31]/35 hover:text-[#fff4dc] active:border-[#efd3a2] active:bg-[#8d4f31]/50 active:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/90 sm:w-24"
+                  >
+                    입력
+                  </button>
+                </form>
+              </div>
+            </section>
+
+            <section ref={philosophySectionRef} className="w-full px-6 py-20 text-left sm:py-28">
+              <div className="qraft-scroll-rise mx-auto w-full max-w-6xl border border-[#d9ad73]/25 bg-[#120b07]/70 p-6 shadow-[0_24px_80px_rgba(13,8,5,0.48)] backdrop-blur-xl sm:p-8">
+                <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:gap-14">
+                  <div>
+                    <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.2em] text-[#d2ad7c]/55">
+                      02 / Philosophy
+                    </p>
+                    <div className="mt-6 h-px w-full bg-[#d9ad73]/16" />
+                    <h2 className="qraft-ownership-heading mt-8 text-2xl font-medium leading-[1.22] tracking-normal [word-break:keep-all] sm:text-3xl lg:text-[34px]">
+                      {ownershipQuestionLines.map((line, index) => (
+                        <span
+                          key={line}
+                          ref={index === 1 ? ownershipChangeLineRef : undefined}
+                          className={`qraft-ownership-line ${
+                            index === 0 ? "qraft-ownership-line-own" : "qraft-ownership-line-change"
+                          }`}
+                        >
+                          {line}
+                        </span>
+                      ))}
+                    </h2>
+                  </div>
+
+                  <div className="border-t border-[#d9ad73]/14 pt-7 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
+                    <p className="text-sm font-medium leading-[1.9] tracking-[0.01em] text-[#f5dfbd]/68 [word-break:keep-all] sm:text-[15px]">
+                      {ownershipBody}
+                    </p>
+                    <blockquote className="mt-8 border-l border-[#d9ad73]/35 pl-5 text-lg font-medium italic leading-[1.6] text-[#f5dfbd]/88 [word-break:keep-all] sm:text-xl">
+                      {ownershipQuote}
+                    </blockquote>
+                    <p className="mt-8 text-sm font-medium leading-[1.9] tracking-[0.01em] text-[#f5dfbd]/68 [word-break:keep-all] sm:text-[15px]">
+                      {ownershipClosing}
+                    </p>
+                    <div className="mt-10 flex items-center justify-between gap-4 border-t border-[#d9ad73]/16 pt-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/45">
+                      <span>Qraft Engine V1.0</span>
+                      <span>Existential Record</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section
+              className="flex w-full items-center px-6 py-28 text-left sm:min-h-screen sm:py-40"
+            >
+              <div className="qraft-scroll-rise mx-auto w-full max-w-6xl">
+                <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.2em] text-[#d2ad7c]/55">
+                  03 / Process
+                </p>
+                <div className="mt-6 h-px w-full bg-[#d9ad73]/16" />
+                <h2 className="mt-8 text-2xl font-medium leading-tight text-[#f5dfbd]/82 sm:text-4xl">
+                  사유의 3단계
+                </h2>
+
+                <div className="qraft-phase-grid mt-10 grid grid-cols-1 md:grid-cols-3">
+                  {phaseCards.map((phase) => (
+                    <article
+                      key={phase.phase}
+                      className={`qraft-phase-card group min-h-64 px-6 py-6 transition-colors duration-500 sm:min-h-72 sm:px-8 sm:py-8 ${phase.tone}`}
+                    >
+                      <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em] text-[#d2ad7c]/55">
+                        {phase.phase}
+                      </p>
+                      <div className="mt-6">
+                        <h3 className="text-2xl font-medium leading-tight text-[#f5dfbd]/82 sm:text-3xl">
+                          {phase.title}
+                        </h3>
+                        <p className="mt-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#d2ad7c]/46">
+                          {phase.label}
+                        </p>
+                      </div>
+                      <p className="qraft-phase-copy mt-8 text-sm font-medium leading-[1.78] text-[#f5dfbd] [word-break:keep-all] sm:text-[15px]">
+                        {phase.copy}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section
+              ref={silentSectionRef}
+              className="qraft-silent-section relative flex w-full items-center overflow-hidden px-6 py-28 text-left sm:min-h-screen sm:py-40"
+            >
+              <div className="relative mx-auto w-full max-w-4xl">
+                <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em] text-[#cbd8cf]/45">
+                  04 / Silent Record
+                </p>
+                <h2 className="mt-4 text-lg font-medium leading-tight text-[#dfe9df]/58 sm:text-2xl">
+                  보이지 않는 관찰자
+                </h2>
+                <blockquote className="qraft-scroll-rise mt-9 max-w-3xl text-xl font-medium leading-[1.55] tracking-normal text-[#edf4eb]/82 [word-break:keep-all] sm:text-2xl sm:leading-[1.5]">
+                  좋은 질문은 정답이라는 종착지에 닿기 위한 수단이 아니라, 사유의 길을 잃지 않게 하는 등불에 가깝습니다. 우리가 타인의 고찰을 엿보는 이유는 정답을 베끼기 위함이 아니라, 서로 다른 시선이 부딪힐 때 발생하는 불꽃을 목격하기 위함입니다.
+                </blockquote>
+                <p
+                  className="mt-8 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-[#cbd8cf]/46"
+                  style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
+                >
+                  — 어느 기록자의 메모 중에서
+                </p>
+              </div>
+            </section>
+          </>
         )}
 
         {isLoading && (

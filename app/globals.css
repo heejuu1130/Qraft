@@ -26,8 +26,138 @@ body {
 }
 
 .qraft-ready-card {
-  max-height: calc(100dvh - 48px);
+  max-height: calc(100dvh - 160px);
   -webkit-overflow-scrolling: touch;
+}
+
+.qraft-landing-form {
+  opacity: 0;
+  will-change: opacity, transform, filter;
+}
+
+.qraft-landing-dust {
+  display: inline;
+  vertical-align: baseline;
+}
+
+.qraft-landing-dust-grain {
+  display: inline-block;
+  opacity: 0;
+  filter: blur(4px);
+  transform: translate3d(var(--dx, 0.018em), var(--dy, -0.012em), 0) scale(var(--scale, 1.002));
+  animation: qraft-dust-reveal 2150ms cubic-bezier(0.16, 1, 0.3, 1) var(--delay, 0ms) both;
+  will-change: opacity, transform, filter;
+}
+
+.qraft-landing-dust-space {
+  display: inline-block;
+  width: 0.34em;
+}
+
+.qraft-landing-form {
+  animation: qraft-form-arrive 720ms cubic-bezier(0.19, 1, 0.22, 1) 1880ms forwards;
+}
+
+.qraft-ownership-line {
+  display: block;
+  color: #fff4dc;
+  transition:
+    opacity 140ms linear,
+    text-shadow 140ms linear;
+}
+
+.qraft-ownership-line-own {
+  opacity: calc(1 - var(--ownership-shift, 0) * 0.38);
+  text-shadow: 0 0 calc((1 - var(--ownership-shift, 0)) * 22px)
+    rgb(245 223 189 / calc((1 - var(--ownership-shift, 0)) * 0.22));
+}
+
+.qraft-ownership-line-change {
+  opacity: calc(0.62 + var(--ownership-shift, 0) * 0.38);
+  text-shadow: 0 0 calc(var(--ownership-shift, 0) * 22px)
+    rgb(245 223 189 / calc(var(--ownership-shift, 0) * 0.22));
+}
+
+.qraft-phase-grid {
+  border: 0.5px solid rgb(245 223 189 / 0.12);
+}
+
+.qraft-phase-card {
+  border-top: 0.5px solid rgb(245 223 189 / 0.1);
+}
+
+.qraft-phase-card:first-child {
+  border-top: 0;
+}
+
+.qraft-phase-card-01 {
+  background: rgb(245 223 189 / 0.045);
+}
+
+.qraft-phase-card-02 {
+  background: rgb(141 79 49 / 0.12);
+}
+
+.qraft-phase-card-03 {
+  background: rgb(25 12 8 / 0.64);
+}
+
+.qraft-phase-copy {
+  opacity: 0.3;
+  transition: opacity 500ms ease;
+}
+
+
+.qraft-phase-card:hover .qraft-phase-copy,
+.qraft-phase-card:focus-within .qraft-phase-copy {
+  opacity: 1;
+}
+
+@media (max-width: 767px) {
+  .qraft-phase-copy {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 767px) and (hover: none) {
+  @supports (animation-timeline: view()) {
+    .qraft-phase-copy {
+      animation: qraft-phase-copy-reveal linear both;
+      animation-range: entry 6% cover 42%;
+      animation-timeline: view();
+      opacity: 0.3;
+    }
+  }
+}
+
+.qraft-scroll-rise {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.qraft-silent-section {
+  isolation: isolate;
+}
+
+@media (min-width: 768px) {
+  .qraft-phase-card {
+    border-left: 0.5px solid rgb(245 223 189 / 0.1);
+    border-top: 0;
+  }
+
+  .qraft-phase-card:first-child {
+    border-left: 0;
+  }
+}
+
+@supports (animation-timeline: view()) {
+  .qraft-scroll-rise {
+    animation: qraft-scroll-rise linear both;
+    animation-range: entry 0% cover 36%;
+    animation-timeline: view();
+    opacity: 0;
+    transform: translateY(96px);
+  }
 }
 
 @media (min-width: 640px) {
@@ -40,6 +170,61 @@ body {
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
     overflow: hidden;
+  }
+}
+
+@keyframes qraft-dust-reveal {
+  0% {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translate3d(var(--dx, 0.018em), var(--dy, -0.012em), 0) scale(var(--scale, 1.002));
+  }
+
+  52% {
+    opacity: 0.58;
+    filter: blur(1.4px);
+  }
+
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes qraft-form-arrive {
+  0% {
+    filter: blur(10px);
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  100% {
+    filter: blur(0);
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes qraft-scroll-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(96px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes qraft-phase-copy-reveal {
+  0% {
+    opacity: 0.3;
+  }
+
+  100% {
+    opacity: 1;
   }
 }
 

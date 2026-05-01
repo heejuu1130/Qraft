@@ -82,6 +82,15 @@ const ownershipClosing =
   "Qraft는 이 철학을 바탕으로 설계되었습니다. 단순히 정보를 저장하는 관성을 잠시 멈추고, 텍스트와 대면하여 당신이라는 존재가 확장되는 '존재적 기록'의 순간을 제공합니다."
 
 const dustMotions = [
+  { dx: "-16px", dy: "9px", scale: 0.968 },
+  { dx: "14px", dy: "-11px", scale: 1.022 },
+  { dx: "-9px", dy: "15px", scale: 0.974 },
+  { dx: "18px", dy: "5px", scale: 1.016 },
+  { dx: "-12px", dy: "-7px", scale: 0.981 },
+  { dx: "7px", dy: "13px", scale: 1.012 },
+]
+
+const blurDustMotions = [
   { dx: "-0.018em", dy: "0.014em", scale: 0.998 },
   { dx: "0.016em", dy: "-0.012em", scale: 1.003 },
   { dx: "0.006em", dy: "0.018em", scale: 0.999 },
@@ -90,8 +99,13 @@ const dustMotions = [
   { dx: "-0.007em", dy: "0.008em", scale: 1.001 },
 ]
 
-const getDustStyle = (index: number, baseDelay: number, step = 28) => {
-  const motion = dustMotions[index % dustMotions.length]
+const getDustStyle = (
+  index: number,
+  baseDelay: number,
+  step = 28,
+  motions: typeof dustMotions = dustMotions
+) => {
+  const motion = motions[index % motions.length]
 
   return {
     "--delay": `${baseDelay + index * step}ms`,
@@ -107,13 +121,18 @@ function LandingDustText({
   delay,
   step,
   decorative = false,
+  blur = false,
 }: {
   text: string
   shouldAnimate: boolean
   delay: number
   step?: number
   decorative?: boolean
+  blur?: boolean
 }) {
+  const motions = blur ? blurDustMotions : dustMotions
+  const grainClass = blur ? "qraft-landing-dust-grain-blur" : "qraft-landing-dust-grain"
+
   return (
     <span
       aria-hidden={decorative ? true : undefined}
@@ -129,9 +148,9 @@ function LandingDustText({
             ) : (
               <span
                 aria-hidden="true"
-                className="qraft-landing-dust-grain"
+                className={grainClass}
                 key={`${character}-${index}`}
-                style={getDustStyle(index, delay, step)}
+                style={getDustStyle(index, delay, step, motions)}
               >
                 {character}
               </span>
@@ -265,9 +284,11 @@ export default function Hero() {
   const [showLogin, setShowLogin] = useState(false)
   const [landingIntroPhase, setLandingIntroPhase] = useState<LandingIntroPhase>("waiting")
   const [silentSectionActive, setSilentSectionActive] = useState(false)
+  const [section3Visible, setSection3Visible] = useState(false)
   const summaryRef = useRef<HTMLParagraphElement>(null)
   const philosophySectionRef = useRef<HTMLElement>(null)
   const ownershipChangeLineRef = useRef<HTMLSpanElement>(null)
+  const section3Ref = useRef<HTMLElement>(null)
   const silentSectionRef = useRef<HTMLElement>(null)
   const pendingSaveRestoredRef = useRef(false)
   const step1TimerRef = useRef<number | undefined>(undefined)
@@ -351,6 +372,22 @@ export default function Hero() {
   useEffect(() => {
     if (!isLanding) return
 
+    const section3 = section3Ref.current
+    if (!section3 || !("IntersectionObserver" in window)) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setSection3Visible(true) },
+      { threshold: 0.05 }
+    )
+
+    observer.observe(section3)
+
+    return () => observer.disconnect()
+  }, [isLanding])
+
+  useEffect(() => {
+    if (!isLanding) return
+
     const silentSection = silentSectionRef.current
     if (!silentSection || !("IntersectionObserver" in window)) return
 
@@ -384,9 +421,9 @@ export default function Hero() {
 
       const changeLineRect = ownershipChangeLine.getBoundingClientRect()
       const viewportHeight = window.innerHeight
-      const switchLine = viewportHeight * 0.53
+      const switchLine = viewportHeight * 0.73
       const changeLineCenter = changeLineRect.top + changeLineRect.height / 2
-      const transitionDistance = viewportHeight * 0.15
+      const transitionDistance = viewportHeight * 0.34
       const progress = clamp((switchLine - changeLineCenter) / transitionDistance, 0, 1)
 
       philosophySection.style.setProperty("--ownership-shift", progress.toFixed(3))
@@ -1038,10 +1075,11 @@ export default function Hero() {
                   }`}
                 >
                   <span className="text-[#f5dfbd]/65 mix-blend-difference">
-                    <LandingDustText delay={780} shouldAnimate={shouldPlayLandingIntro} text={landingCopy} />
+                    <LandingDustText blur delay={780} shouldAnimate={shouldPlayLandingIntro} text={landingCopy} />
                   </span>
                   <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2]/70 mix-blend-overlay">
                     <LandingDustText
+                      blur
                       decorative
                       delay={780}
                       shouldAnimate={shouldPlayLandingIntro}
@@ -1086,7 +1124,7 @@ export default function Hero() {
               </div>
             </section>
 
-            <section ref={philosophySectionRef} className="w-full px-6 py-20 text-left sm:py-28">
+            <section ref={philosophySectionRef} className="w-full px-6 py-12 text-left sm:py-16">
               <div className="qraft-scroll-rise mx-auto w-full max-w-6xl border border-[#d9ad73]/25 bg-[#120b07]/70 p-6 shadow-[0_24px_80px_rgba(13,8,5,0.48)] backdrop-blur-xl sm:p-8">
                 <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:gap-14">
                   <div>
@@ -1129,9 +1167,10 @@ export default function Hero() {
             </section>
 
             <section
-              className="flex w-full items-center px-6 py-28 text-left sm:min-h-screen sm:py-40"
+              ref={section3Ref}
+              className="flex w-full items-center px-6 py-16 text-left sm:min-h-screen sm:py-24"
             >
-              <div className="qraft-scroll-rise mx-auto w-full max-w-6xl">
+              <div className={`${section3Visible ? "qraft-top-reveal-visible" : "qraft-top-reveal"} mx-auto w-full max-w-6xl`}>
                 <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.2em] text-[#d2ad7c]/55">
                   03 / Process
                 </p>

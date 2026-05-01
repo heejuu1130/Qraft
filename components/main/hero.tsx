@@ -71,7 +71,7 @@ const phaseCards = [
 const landingTitle = "Qraft"
 const landingCopy = "답이 아니라 질문이 사람을 깊게 만듭니다"
 const ownershipQuestionLines = [
-  "정보를 '가진' 사람입니까,",
+  "당신은 정보를 '가진' 사람입니까,",
   "정보로 '변화'하는 사람입니까?",
 ]
 const ownershipBody =
@@ -80,17 +80,53 @@ const ownershipQuote =
   "\"소유적 소비는 나를 채우는 듯하나 사실은 나를 지우고, 존재적 사유는 나를 흔들어 비로소 나를 세웁니다.\""
 const ownershipClosing =
   "Qraft는 이 철학을 바탕으로 설계되었습니다. 단순히 정보를 저장하는 관성을 잠시 멈추고, 텍스트와 대면하여 당신이라는 존재가 확장되는 '존재적 기록'의 순간을 제공합니다."
+const silentRecordQuote =
+  "좋은 질문은 정답이라는 종착지에 닿기 위한 수단이 아니라, 사유의 길을 잃지 않게 하는 등불에 가깝습니다. 우리가 타인의 고찰을 엿보는 이유는 정답을 베끼기 위함이 아니라, 서로 다른 시선이 부딪힐 때 발생하는 불꽃을 목격하기 위함입니다."
+const silentRecordCharacterStepMs = 72
+const silentRecordCommaPauseMs = 420
+const silentRecordSentencePauseMs = 900
+const silentRecordLoopPauseMs = 3000
+
+const getSilentRecordCharacterTimings = () => {
+  let delay = 0
+
+  const characters = Array.from(silentRecordQuote).map((character) => {
+    if (character === " ") {
+      return { character, delay: null }
+    }
+
+    const timing = { character, delay }
+    delay += silentRecordCharacterStepMs
+
+    if (character === "," || character === "，") {
+      delay += silentRecordCommaPauseMs
+    }
+
+    if (/[.!?]/.test(character)) {
+      delay += silentRecordSentencePauseMs
+    }
+
+    return timing
+  })
+
+  return {
+    characters,
+    cycleMs: delay + silentRecordLoopPauseMs,
+  }
+}
+
+const silentRecordCharacterTimings = getSilentRecordCharacterTimings()
 
 const dustMotions = [
-  { dx: "-16px", dy: "9px", scale: 0.968 },
-  { dx: "14px", dy: "-11px", scale: 1.022 },
-  { dx: "-9px", dy: "15px", scale: 0.974 },
-  { dx: "18px", dy: "5px", scale: 1.016 },
-  { dx: "-12px", dy: "-7px", scale: 0.981 },
-  { dx: "7px", dy: "13px", scale: 1.012 },
+  { dx: "-22px", dy: "10px", scale: 0.988 },
+  { dx: "18px", dy: "-9px", scale: 1.01 },
+  { dx: "-13px", dy: "18px", scale: 0.992 },
+  { dx: "24px", dy: "5px", scale: 1.008 },
+  { dx: "-16px", dy: "-8px", scale: 0.994 },
+  { dx: "9px", dy: "15px", scale: 1.006 },
 ]
 
-const blurDustMotions = [
+const softDustMotions = [
   { dx: "-0.018em", dy: "0.014em", scale: 0.998 },
   { dx: "0.016em", dy: "-0.012em", scale: 1.003 },
   { dx: "0.006em", dy: "0.018em", scale: 0.999 },
@@ -99,12 +135,7 @@ const blurDustMotions = [
   { dx: "-0.007em", dy: "0.008em", scale: 1.001 },
 ]
 
-const getDustStyle = (
-  index: number,
-  baseDelay: number,
-  step = 28,
-  motions: typeof dustMotions = dustMotions
-) => {
+const getDustStyle = (index: number, baseDelay: number, step = 28, motions = dustMotions) => {
   const motion = motions[index % motions.length]
 
   return {
@@ -121,17 +152,16 @@ function LandingDustText({
   delay,
   step,
   decorative = false,
-  blur = false,
+  variant = "title",
 }: {
   text: string
   shouldAnimate: boolean
   delay: number
   step?: number
   decorative?: boolean
-  blur?: boolean
+  variant?: "title" | "soft"
 }) {
-  const motions = blur ? blurDustMotions : dustMotions
-  const grainClass = blur ? "qraft-landing-dust-grain-blur" : "qraft-landing-dust-grain"
+  const isSoft = variant === "soft"
 
   return (
     <span
@@ -148,9 +178,9 @@ function LandingDustText({
             ) : (
               <span
                 aria-hidden="true"
-                className={grainClass}
+                className={`qraft-landing-dust-grain ${isSoft ? "qraft-landing-dust-grain-soft" : ""}`}
                 key={`${character}-${index}`}
-                style={getDustStyle(index, delay, step, motions)}
+                style={getDustStyle(index, delay, step, isSoft ? softDustMotions : dustMotions)}
               >
                 {character}
               </span>
@@ -268,6 +298,9 @@ const getInitialResultState = () => {
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+const getViewportProgress = (start: number, end: number, value: number) => clamp((start - value) / (start - end), 0, 1)
+const getSegmentProgress = (progress: number, start: number, end: number) => clamp((progress - start) / (end - start), 0, 1)
+const getRevealOffset = (progress: number, distance = 28) => `${((1 - progress) * distance).toFixed(1)}px`
 
 export default function Hero() {
   const [generationState, setGenerationState] = useState<GenerationState>("idle")
@@ -284,9 +317,11 @@ export default function Hero() {
   const [showLogin, setShowLogin] = useState(false)
   const [landingIntroPhase, setLandingIntroPhase] = useState<LandingIntroPhase>("waiting")
   const [silentSectionActive, setSilentSectionActive] = useState(false)
+  const [silentQuoteActive, setSilentQuoteActive] = useState(false)
   const [section3Visible, setSection3Visible] = useState(false)
   const summaryRef = useRef<HTMLParagraphElement>(null)
   const philosophySectionRef = useRef<HTMLElement>(null)
+  const philosophyCardRef = useRef<HTMLDivElement>(null)
   const ownershipChangeLineRef = useRef<HTMLSpanElement>(null)
   const section3Ref = useRef<HTMLElement>(null)
   const silentSectionRef = useRef<HTMLElement>(null)
@@ -354,6 +389,13 @@ export default function Hero() {
   }
 
   useEffect(() => {
+    if ("scrollRestoration" in history) {
+      history.scrollRestoration = "manual"
+    }
+    window.scrollTo(0, 0)
+  }, [])
+
+  useEffect(() => {
     if (!isLanding || normalizedLandingIntroPhase !== "waiting") return
 
     const startTimer = window.setTimeout(() => {
@@ -393,11 +435,32 @@ export default function Hero() {
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        setSilentSectionActive(entry.isIntersecting && entry.intersectionRatio > 0.18)
+        setSilentSectionActive(entry.isIntersecting && entry.intersectionRatio > 0.16)
       },
       {
-        rootMargin: "-18% 0px -28% 0px",
-        threshold: [0, 0.18, 0.45],
+        rootMargin: "-18% 0px -24% 0px",
+        threshold: [0, 0.16, 0.38],
+      }
+    )
+
+    observer.observe(silentSection)
+
+    return () => observer.disconnect()
+  }, [isLanding])
+
+  useEffect(() => {
+    if (!isLanding) return
+
+    const silentSection = silentSectionRef.current
+    if (!silentSection || !("IntersectionObserver" in window)) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setSilentQuoteActive(entry.isIntersecting && entry.intersectionRatio > 0.62)
+      },
+      {
+        rootMargin: "-10% 0px -10% 0px",
+        threshold: [0, 0.62, 0.78],
       }
     )
 
@@ -411,22 +474,30 @@ export default function Hero() {
     if (!isLanding) return
 
     const philosophySection = philosophySectionRef.current
-    const ownershipChangeLine = ownershipChangeLineRef.current
-    if (!philosophySection || !ownershipChangeLine) return
+    const philosophyCard = philosophyCardRef.current
+    if (!philosophySection || !philosophyCard) return
 
     let frameId: number | undefined
 
     const updateOwnershipShift = () => {
       frameId = undefined
 
-      const changeLineRect = ownershipChangeLine.getBoundingClientRect()
+      const cardRect = philosophyCard.getBoundingClientRect()
       const viewportHeight = window.innerHeight
-      const switchLine = viewportHeight * 0.73
-      const changeLineCenter = changeLineRect.top + changeLineRect.height / 2
-      const transitionDistance = viewportHeight * 0.34
-      const progress = clamp((switchLine - changeLineCenter) / transitionDistance, 0, 1)
+      const cardCenter = cardRect.top + cardRect.height / 2
+      const cardProgress = getViewportProgress(viewportHeight * 0.84, viewportHeight * 0.5, cardCenter)
+      const changeProgress = getSegmentProgress(cardProgress, 0, 0.52)
+      const bodyProgress = getSegmentProgress(cardProgress, 0.08, 0.58)
+      const quoteProgress = getSegmentProgress(cardProgress, 0.48, 0.78)
+      const closingProgress = getSegmentProgress(cardProgress, 0.7, 1)
 
-      philosophySection.style.setProperty("--ownership-shift", progress.toFixed(3))
+      philosophySection.style.setProperty("--ownership-shift", changeProgress.toFixed(3))
+      philosophySection.style.setProperty("--ownership-body-progress", bodyProgress.toFixed(3))
+      philosophySection.style.setProperty("--ownership-body-y", getRevealOffset(bodyProgress))
+      philosophySection.style.setProperty("--ownership-quote-progress", quoteProgress.toFixed(3))
+      philosophySection.style.setProperty("--ownership-quote-y", getRevealOffset(quoteProgress, 24))
+      philosophySection.style.setProperty("--ownership-closing-progress", closingProgress.toFixed(3))
+      philosophySection.style.setProperty("--ownership-closing-y", getRevealOffset(closingProgress, 24))
     }
 
     const queueOwnershipShift = () => {
@@ -1049,7 +1120,7 @@ export default function Hero() {
       >
         {generationState === "idle" && (
           <>
-            <section className="flex min-h-screen w-full flex-col items-center justify-center px-6 pb-[12vh] pt-24">
+            <section className="relative flex min-h-screen w-full flex-col items-center justify-center px-6 pb-[12vh] pt-24">
               <div className="flex w-full flex-col items-center">
                 <h1
                   className={`relative text-5xl font-medium leading-[1.1] tracking-normal drop-shadow-[0_8px_28px_rgba(13,8,5,0.28)] sm:text-[64px] ${
@@ -1075,15 +1146,20 @@ export default function Hero() {
                   }`}
                 >
                   <span className="text-[#f5dfbd]/65 mix-blend-difference">
-                    <LandingDustText blur delay={780} shouldAnimate={shouldPlayLandingIntro} text={landingCopy} />
+                    <LandingDustText
+                      delay={780}
+                      shouldAnimate={shouldPlayLandingIntro}
+                      text={landingCopy}
+                      variant="soft"
+                    />
                   </span>
                   <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2]/70 mix-blend-overlay">
                     <LandingDustText
-                      blur
                       decorative
                       delay={780}
                       shouldAnimate={shouldPlayLandingIntro}
                       text={landingCopy}
+                      variant="soft"
                     />
                   </span>
                 </p>
@@ -1121,11 +1197,32 @@ export default function Hero() {
                     입력
                   </button>
                 </form>
+
+              </div>
+
+              <div
+                aria-hidden="true"
+                className={`qraft-scroll-cue absolute bottom-[6.5vh] left-1/2 -translate-x-1/2 ${
+                  shouldHideLandingIntro ? "opacity-0" : ""
+                }`}
+              >
+                <svg width="24" height="24" viewBox="0 0 18 18" fill="none">
+                  <path
+                    d="M4.5 7.25L9 11.75L13.5 7.25"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1"
+                  />
+                </svg>
               </div>
             </section>
 
             <section ref={philosophySectionRef} className="w-full px-6 py-12 text-left sm:py-16">
-              <div className="qraft-scroll-rise mx-auto w-full max-w-6xl border border-[#d9ad73]/25 bg-[#120b07]/70 p-6 shadow-[0_24px_80px_rgba(13,8,5,0.48)] backdrop-blur-xl sm:p-8">
+              <div
+                ref={philosophyCardRef}
+                className="qraft-scroll-rise mx-auto w-full max-w-6xl border border-[#d9ad73]/25 bg-[#120b07]/70 p-6 shadow-[0_24px_80px_rgba(13,8,5,0.48)] backdrop-blur-xl sm:p-8"
+              >
                 <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:gap-14">
                   <div>
                     <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.2em] text-[#d2ad7c]/55">
@@ -1147,17 +1244,17 @@ export default function Hero() {
                     </h2>
                   </div>
 
-                  <div className="border-t border-[#d9ad73]/14 pt-7 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
-                    <p className="text-sm font-medium leading-[1.9] tracking-[0.01em] text-[#f5dfbd]/68 [word-break:keep-all] sm:text-[15px]">
+                  <div className="qraft-ownership-right border-t border-[#d9ad73]/14 pt-7 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
+                    <p className="qraft-ownership-reveal qraft-ownership-reveal-body text-sm font-medium leading-[1.9] tracking-[0.01em] text-[#f5dfbd]/68 [word-break:keep-all] sm:text-[15px]">
                       {ownershipBody}
                     </p>
-                    <blockquote className="mt-8 border-l border-[#d9ad73]/35 pl-5 text-lg font-medium italic leading-[1.6] text-[#f5dfbd]/88 [word-break:keep-all] sm:text-xl">
+                    <blockquote className="qraft-ownership-reveal qraft-ownership-reveal-quote mt-8 border-l border-[#d9ad73]/35 pl-5 text-lg font-medium italic leading-[1.6] text-[#f5dfbd]/88 [word-break:keep-all] sm:text-xl">
                       {ownershipQuote}
                     </blockquote>
-                    <p className="mt-8 text-sm font-medium leading-[1.9] tracking-[0.01em] text-[#f5dfbd]/68 [word-break:keep-all] sm:text-[15px]">
+                    <p className="qraft-ownership-reveal qraft-ownership-reveal-closing mt-8 text-sm font-medium leading-[1.9] tracking-[0.01em] text-[#f5dfbd]/68 [word-break:keep-all] sm:text-[15px]">
                       {ownershipClosing}
                     </p>
-                    <div className="mt-10 flex items-center justify-between gap-4 border-t border-[#d9ad73]/16 pt-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/45">
+                    <div className="qraft-ownership-reveal qraft-ownership-reveal-closing mt-10 flex items-center justify-between gap-4 border-t border-[#d9ad73]/16 pt-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/45">
                       <span>Qraft Engine V1.0</span>
                       <span>Existential Record</span>
                     </div>
@@ -1168,9 +1265,13 @@ export default function Hero() {
 
             <section
               ref={section3Ref}
-              className="flex w-full items-center px-6 py-16 text-left sm:min-h-screen sm:py-24"
+              className="flex w-full items-center px-6 pb-10 pt-16 text-left sm:min-h-[86vh] sm:pb-16 sm:pt-24"
             >
-              <div className={`${section3Visible ? "qraft-top-reveal-visible" : "qraft-top-reveal"} mx-auto w-full max-w-6xl`}>
+              <div
+                className={`qraft-top-reveal mx-auto w-full max-w-6xl ${
+                  section3Visible ? "qraft-top-reveal-visible" : ""
+                }`}
+              >
                 <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.2em] text-[#d2ad7c]/55">
                   03 / Process
                 </p>
@@ -1179,7 +1280,7 @@ export default function Hero() {
                   사유의 3단계
                 </h2>
 
-                <div className="qraft-phase-grid mt-10 grid grid-cols-1 md:grid-cols-3">
+                <div className="qraft-phase-grid mt-10 grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-3">
                   {phaseCards.map((phase) => (
                     <article
                       key={phase.phase}
@@ -1207,7 +1308,7 @@ export default function Hero() {
 
             <section
               ref={silentSectionRef}
-              className="qraft-silent-section relative flex w-full items-center overflow-hidden px-6 py-28 text-left sm:min-h-screen sm:py-40"
+              className="qraft-silent-section relative flex w-full items-center overflow-hidden px-6 pb-28 pt-14 text-left sm:min-h-[92vh] sm:pb-36 sm:pt-20"
             >
               <div className="relative mx-auto w-full max-w-4xl">
                 <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em] text-[#cbd8cf]/45">
@@ -1216,8 +1317,27 @@ export default function Hero() {
                 <h2 className="mt-4 text-lg font-medium leading-tight text-[#dfe9df]/58 sm:text-2xl">
                   보이지 않는 관찰자
                 </h2>
-                <blockquote className="qraft-scroll-rise mt-9 max-w-3xl text-xl font-medium leading-[1.55] tracking-normal text-[#edf4eb]/82 [word-break:keep-all] sm:text-2xl sm:leading-[1.5]">
-                  좋은 질문은 정답이라는 종착지에 닿기 위한 수단이 아니라, 사유의 길을 잃지 않게 하는 등불에 가깝습니다. 우리가 타인의 고찰을 엿보는 이유는 정답을 베끼기 위함이 아니라, 서로 다른 시선이 부딪힐 때 발생하는 불꽃을 목격하기 위함입니다.
+                <blockquote
+                  className={`qraft-scroll-rise qraft-silent-quote mt-9 max-w-3xl text-xl font-medium leading-[1.55] tracking-normal [word-break:keep-all] sm:text-2xl sm:leading-[1.5] ${
+                    silentQuoteActive ? "qraft-silent-quote-active" : ""
+                  }`}
+                  style={{ "--silent-flow-cycle": `${silentRecordCharacterTimings.cycleMs}ms` } as CSSProperties}
+                >
+                  {silentRecordCharacterTimings.characters.map(({ character, delay }, index) =>
+                    delay === null ? (
+                      <span aria-hidden="true" key={`space-${index}`}>
+                        {" "}
+                      </span>
+                    ) : (
+                      <span
+                        className="qraft-silent-character"
+                        key={`${character}-${index}`}
+                        style={{ "--character-delay": `${delay}ms` } as CSSProperties}
+                      >
+                        {character}
+                      </span>
+                    )
+                  )}
                 </blockquote>
                 <p
                   className="mt-8 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-[#cbd8cf]/46"

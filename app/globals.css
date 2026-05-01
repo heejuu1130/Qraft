@@ -43,22 +43,17 @@ body {
 .qraft-landing-dust-grain {
   display: inline-block;
   opacity: 0;
-  transform: translate3d(var(--dx, -16px), var(--dy, 9px), 0) scale(var(--scale, 0.968));
-  animation: qraft-dust-reveal 2000ms cubic-bezier(0.16, 1, 0.3, 1) var(--delay, 0ms) both;
-  will-change: opacity, transform;
+  filter: blur(1.15px);
+  transform: translate3d(var(--dx, -22px), var(--dy, 10px), 0) scale(var(--scale, 0.988));
+  animation: qraft-dust-reveal 2200ms cubic-bezier(0.16, 1, 0.3, 1) var(--delay, 0ms) both;
+  will-change: opacity, transform, filter;
 }
 
-.qraft-landing-dust-grain-blur {
-  display: inline-block;
-  opacity: 0;
+.qraft-landing-dust-grain-soft {
   filter: blur(4px);
   transform: translate3d(var(--dx, 0.018em), var(--dy, -0.012em), 0) scale(var(--scale, 1.002));
-  animation-name: qraft-dust-reveal-blur;
+  animation-name: qraft-soft-dust-reveal;
   animation-duration: 1800ms;
-  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
-  animation-delay: var(--delay, 0ms);
-  animation-fill-mode: both;
-  will-change: opacity, transform, filter;
 }
 
 .qraft-landing-dust-space {
@@ -70,6 +65,13 @@ body {
   animation: qraft-form-arrive 1500ms cubic-bezier(0.19, 1, 0.22, 1) 3000ms forwards;
 }
 
+.qraft-scroll-cue {
+  color: rgb(245 223 189 / 0.82);
+  opacity: 0;
+  animation: qraft-scroll-cue 2600ms ease-in-out 3600ms infinite;
+  filter: drop-shadow(0 0 20px rgb(245 223 189 / 0.32));
+}
+
 .qraft-ownership-line {
   display: block;
   color: #fff4dc;
@@ -79,27 +81,61 @@ body {
 }
 
 .qraft-ownership-line-own {
-  opacity: calc(1 - var(--ownership-shift, 0) * 0.38);
+  opacity: calc(0.9 - var(--ownership-shift, 0) * 0.76);
   text-shadow: 0 0 calc((1 - var(--ownership-shift, 0)) * 22px)
     rgb(245 223 189 / calc((1 - var(--ownership-shift, 0)) * 0.22));
 }
 
 .qraft-ownership-line-change {
-  opacity: calc(0.62 + var(--ownership-shift, 0) * 0.38);
+  opacity: calc(0.14 + var(--ownership-shift, 0) * 0.82);
   text-shadow: 0 0 calc(var(--ownership-shift, 0) * 22px)
     rgb(245 223 189 / calc(var(--ownership-shift, 0) * 0.22));
 }
 
+.qraft-ownership-right {
+  opacity: 1;
+}
+
+.qraft-ownership-reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity 140ms linear,
+    transform 140ms linear;
+  will-change: opacity, transform;
+}
+
+.qraft-ownership-reveal-body {
+  opacity: var(--ownership-body-progress, 0);
+  transform: translateY(var(--ownership-body-y, 28px));
+}
+
+.qraft-ownership-reveal-quote {
+  opacity: var(--ownership-quote-progress, 0);
+  transform: translateY(var(--ownership-quote-y, 24px));
+}
+
+.qraft-ownership-reveal-closing {
+  opacity: var(--ownership-closing-progress, 0);
+  transform: translateY(var(--ownership-closing-y, 24px));
+}
+
 .qraft-phase-grid {
-  border: 0.5px solid rgb(245 223 189 / 0.12);
+  border: 0;
 }
 
 .qraft-phase-card {
-  border-top: 0.5px solid rgb(245 223 189 / 0.1);
+  border: 0.5px solid rgb(245 223 189 / 0.12);
+  box-shadow: 0 0 0 rgb(245 223 189 / 0);
+  transition:
+    background-color 500ms ease,
+    border-color 500ms ease,
+    box-shadow 500ms ease,
+    transform 500ms ease;
 }
 
 .qraft-phase-card:first-child {
-  border-top: 0;
+  border-top: 0.5px solid rgb(245 223 189 / 0.12);
 }
 
 .qraft-phase-card-01 {
@@ -125,6 +161,16 @@ body {
   opacity: 1;
 }
 
+.qraft-phase-card:hover,
+.qraft-phase-card:focus-within {
+  border-color: rgb(239 211 162 / 0.36);
+  box-shadow:
+    0 24px 70px rgb(245 223 189 / 0.08),
+    0 0 0 1px rgb(245 223 189 / 0.08),
+    inset 0 0 42px rgb(245 223 189 / 0.035);
+  transform: translateY(-2px);
+}
+
 @media (max-width: 767px) {
   .qraft-phase-copy {
     opacity: 1;
@@ -148,27 +194,44 @@ body {
 }
 
 .qraft-top-reveal {
-  clip-path: inset(0 0 100% 0);
-  transition: clip-path 1100ms cubic-bezier(0.19, 1, 0.22, 1);
-  will-change: clip-path;
+  opacity: 0;
+  transform: translateY(72px);
+  transition:
+    opacity 900ms cubic-bezier(0.19, 1, 0.22, 1),
+    transform 900ms cubic-bezier(0.19, 1, 0.22, 1);
+  will-change: opacity, transform;
 }
 
 .qraft-top-reveal-visible {
-  clip-path: inset(0 0 0% 0);
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .qraft-silent-section {
   isolation: isolate;
 }
 
+.qraft-silent-quote {
+  --silent-flow-cycle: 13000ms;
+  color: rgb(237 244 235 / 0.72);
+}
+
+.qraft-silent-character {
+  color: rgb(237 244 235 / 0.72);
+  text-shadow: 0 0 0 rgb(237 244 235 / 0);
+}
+
+.qraft-silent-quote-active .qraft-silent-character {
+  animation: qraft-silent-character-glow var(--silent-flow-cycle) linear var(--character-delay, 0ms) infinite;
+}
+
 @media (min-width: 768px) {
   .qraft-phase-card {
-    border-left: 0.5px solid rgb(245 223 189 / 0.1);
-    border-top: 0;
+    border: 0.5px solid rgb(245 223 189 / 0.12);
   }
 
   .qraft-phase-card:first-child {
-    border-left: 0;
+    border-left: 0.5px solid rgb(245 223 189 / 0.12);
   }
 }
 
@@ -198,20 +261,23 @@ body {
 @keyframes qraft-dust-reveal {
   0% {
     opacity: 0;
-    transform: translate3d(var(--dx, -16px), var(--dy, 9px), 0) scale(var(--scale, 0.968));
+    filter: blur(1.15px);
+    transform: translate3d(var(--dx, -22px), var(--dy, 10px), 0) scale(var(--scale, 0.988));
   }
 
-  50% {
-    opacity: 0.6;
+  56% {
+    opacity: 0.72;
+    filter: blur(0.35px);
   }
 
   100% {
     opacity: 1;
+    filter: blur(0);
     transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
-@keyframes qraft-dust-reveal-blur {
+@keyframes qraft-soft-dust-reveal {
   0% {
     opacity: 0;
     filter: blur(4px);
@@ -241,6 +307,19 @@ body {
     filter: blur(0);
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes qraft-scroll-cue {
+  0%,
+  100% {
+    opacity: 0.68;
+    transform: translateY(0);
+  }
+
+  45% {
+    opacity: 1;
+    transform: translateY(6px);
   }
 }
 
@@ -274,6 +353,23 @@ body {
   100% {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes qraft-silent-character-glow {
+  0%,
+  1.2%,
+  4.8%,
+  100% {
+    color: rgb(237 244 235 / 0.72);
+    text-shadow: 0 0 0 rgb(237 244 235 / 0);
+  }
+
+  2.8% {
+    color: rgb(255 255 255 / 1);
+    text-shadow:
+      0 0 18px rgb(237 244 235 / 0.26),
+      0 0 42px rgb(237 244 235 / 0.12);
   }
 }
 

@@ -1270,7 +1270,19 @@ export default function Hero() {
           aria-expanded={feedbackOpen}
           className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-[#d9ad73]/26 bg-[#120b07]/58 text-[#f5dfbd]/68 shadow-[0_12px_36px_rgba(8,4,3,0.42)] backdrop-blur-xl transition-all duration-500 hover:border-[#efd3a2]/52 hover:bg-[#f5dfbd]/[0.1] hover:text-[#fff4dc] hover:shadow-[0_16px_48px_rgba(245,223,189,0.1)] focus:outline-none focus-visible:border-[#efd3a2]/72"
         >
-          <span className="-translate-y-[2px] font-serif text-base font-medium leading-none">Q</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M11.6 4.6C7.55 4.6 4.55 7.63 4.55 11.52C4.55 15.42 7.55 18.45 11.6 18.45C15.65 18.45 18.65 15.42 18.65 11.52C18.65 7.63 15.65 4.6 11.6 4.6Z"
+              stroke="currentColor"
+              strokeWidth="1.9"
+            />
+            <path
+              d="M15.35 15.85L19.35 19.55"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="2"
+            />
+          </svg>
         </button>
       </div>
 

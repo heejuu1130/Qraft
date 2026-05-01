@@ -31,7 +31,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        <link rel="preload" as="audio" href="/bgm-start.mp3" type="audio/mpeg" />
+        <link rel="preload" as="audio" href="/bgm.mp3" type="audio/mpeg" />
       </head>
       <body className="min-h-full flex flex-col">
         <AuthProvider>

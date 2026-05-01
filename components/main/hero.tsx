@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type SubmitEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react"
 import { MeshGradient } from "@paper-design/shaders-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -15,6 +15,7 @@ const desert = {
 }
 
 const silentRecordColors = ["#071613", "#123027", "#526f57", "#d8c3a4"]
+const processRecordColors = ["#150906", "#3a160b", "#a24f25", "#ffd28a"]
 
 const loadingMessages = [
   "텍스트의 뼈대를 추리고 있습니다.",
@@ -70,16 +71,28 @@ const phaseCards = [
 
 const landingTitle = "Qraft"
 const landingCopy = "답이 아니라 질문이 사람을 깊게 만듭니다"
+const exampleTopics = [
+  "알고리즘과 주체성",
+  "AI 시대의 인간성",
+  "디지털 도파민과 침묵",
+  "편집된 자아",
+  "물리적 공간의 상실",
+  "기억의 외주화",
+  "데이터와 실존",
+  "참을 수 없는 존재의 가벼움",
+]
+const exampleTopicRows = [exampleTopics.slice(0, 5), exampleTopics.slice(5)]
+const exampleTopicDelayOrder = [0, 4, 1, 6, 3, 2, 7, 5]
 const ownershipQuestionLines = [
   "당신은 정보를 '가진' 사람입니까,",
   "정보로 '변화'하는 사람입니까?",
 ]
 const ownershipBody =
-  "김익한 교수는 독서의 본질이 '정보의 소유'가 아닌 '존재의 변화'에 있다고 말합니다. 우리는 매일 수많은 링크와 아티클을 수집하며 지적 포만감을 느끼지만, 멈춰서 사유하지 않는 정보는 결코 내 것이 되지 못한 채 쌓여가는 부채가 될 뿐입니다."
+  "기록학자 김익한 교수는 독서의 본질이 '정보의 소유'가 아닌 '존재의 변화'에 있다고 말합니다. 우리는 매일 수많은 링크와 아티클을 수집하며 지적 포만감을 느끼지만, 멈춰서 사유하지 않는 정보는 결코 내 것이 되지 못한 채 쌓여갈 뿐입니다."
 const ownershipQuote =
-  "\"소유적 소비는 나를 채우는 듯하나 사실은 나를 지우고, 존재적 사유는 나를 흔들어 비로소 나를 세웁니다.\""
+  "\"소유는 ‘내 밖에 쌓아 두는 것’입니다. 존재는 ‘내 안으로 들여 나의 일부로 만드는 것’이에요. 정리하면 ‘세상 만물을 내 밖에 두느냐, 내 안에 들이느냐’입니다.\""
 const ownershipClosing =
-  "Qraft는 이 철학을 바탕으로 설계되었습니다. 단순히 정보를 저장하는 관성을 잠시 멈추고, 텍스트와 대면하여 당신이라는 존재가 확장되는 '존재적 기록'의 순간을 제공합니다."
+  "Qraft는 이 철학을 바탕으로 설계되었습니다. 단순히 정보를 저장하는 관성을 잠시 멈추고, 텍스트와 대면하여 당신이라는 존재가 확장되는 사유의 순간을 제공합니다."
 const silentRecordQuote =
   "좋은 질문은 정답이라는 종착지에 닿기 위한 수단이 아니라, 사유의 길을 잃지 않게 하는 등불에 가깝습니다. 우리가 타인의 고찰을 엿보는 이유는 정답을 베끼기 위함이 아니라, 서로 다른 시선이 부딪힐 때 발생하는 불꽃을 목격하기 위함입니다."
 const silentRecordCharacterStepMs = 72
@@ -193,11 +206,18 @@ function LandingDustText({
 
 type GenerationState = "idle" | "loading" | "ready" | "error"
 type LandingIntroPhase = "waiting" | "playing" | "settled"
+type FeedbackStatus = "idle" | "sending" | "sent" | "error"
 
 type QuestionPayload = {
   summary: string
   questions: string[]
   reflections: string[]
+}
+
+type QuestionErrorPayload = {
+  message?: string
+  code?: string
+  retryable?: boolean
 }
 
 type QuestionHistory = {
@@ -219,10 +239,11 @@ type PendingSaveState = {
 
 type RestoredResultState = Omit<PendingSaveState, "questionIndex">
 
-const refiningDuration = 8400
+const refiningDuration = 3600
 const refiningStepDuration = refiningDuration / 3
-const regenerateDuration = 2000
-const regenerateStepDuration = 1000
+const finalRevealDuration = 900
+const regenerateDuration = 900
+const regenerateStepDuration = 600
 const questionHistoryStorageKey = "qraft:question-history"
 const pendingSaveStorageKey = "qraft:pending-save"
 const currentResultStorageKey = "qraft:current-result"
@@ -301,6 +322,17 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 const getViewportProgress = (start: number, end: number, value: number) => clamp((start - value) / (start - end), 0, 1)
 const getSegmentProgress = (progress: number, start: number, end: number) => clamp((progress - start) / (end - start), 0, 1)
 const getRevealOffset = (progress: number, distance = 28) => `${((1 - progress) * distance).toFixed(1)}px`
+const formatSummaryForDisplay = (value: string) =>
+  value
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\n(?!\n)(?=1\.\s)/, "\n\n")
+const getSummaryDisplayLines = (value: string) =>
+  value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
 
 export default function Hero() {
   const [generationState, setGenerationState] = useState<GenerationState>("idle")
@@ -310,6 +342,7 @@ export default function Hero() {
   const [summaryOverflowing, setSummaryOverflowing] = useState(false)
   const [questions, setQuestions] = useState<string[]>([])
   const [reflections, setReflections] = useState<string[]>([])
+  const [errorMessage, setErrorMessage] = useState("")
   const [openReflectionIndexes, setOpenReflectionIndexes] = useState<Set<number>>(() => new Set())
   const [lastSource, setLastSource] = useState("")
   const [savedQuestionKeys, setSavedQuestionKeys] = useState<Set<string>>(() => new Set())
@@ -319,7 +352,14 @@ export default function Hero() {
   const [silentSectionActive, setSilentSectionActive] = useState(false)
   const [silentQuoteActive, setSilentQuoteActive] = useState(false)
   const [section3Visible, setSection3Visible] = useState(false)
+  const [processSectionActive, setProcessSectionActive] = useState(false)
+  const [hideLandingScrollCue, setHideLandingScrollCue] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackText, setFeedbackText] = useState("")
+  const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus>("idle")
+  const [feedbackErrorMessage, setFeedbackErrorMessage] = useState("")
   const summaryRef = useRef<HTMLParagraphElement>(null)
+  const landingInputRef = useRef<HTMLInputElement>(null)
   const philosophySectionRef = useRef<HTMLElement>(null)
   const philosophyCardRef = useRef<HTMLDivElement>(null)
   const ownershipChangeLineRef = useRef<HTMLSpanElement>(null)
@@ -381,11 +421,18 @@ export default function Hero() {
       : isLoading
         ? "scale-[1.03] blur-[14px]"
         : "scale-100 blur-0"
+  const displayedSummary = formatSummaryForDisplay(summary)
+  const displayedSummaryLines = getSummaryDisplayLines(displayedSummary)
 
   const resetToIdle = () => {
     window.sessionStorage.removeItem(currentResultStorageKey)
     setLandingIntroPhase("settled")
     setGenerationState("idle")
+  }
+
+  const scrollToQuestionInput = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" })
+    window.setTimeout(() => landingInputRef.current?.focus(), 650)
   }
 
   useEffect(() => {
@@ -418,8 +465,14 @@ export default function Hero() {
     if (!section3 || !("IntersectionObserver" in window)) return
 
     const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setSection3Visible(true) },
-      { threshold: 0.05 }
+      ([entry]) => {
+        if (entry.isIntersecting) setSection3Visible(true)
+        setProcessSectionActive(entry.isIntersecting && entry.intersectionRatio > 0.14)
+      },
+      {
+        rootMargin: "-14% 0px -20% 0px",
+        threshold: [0, 0.05, 0.14, 0.36],
+      }
     )
 
     observer.observe(section3)
@@ -491,6 +544,7 @@ export default function Hero() {
       const quoteProgress = getSegmentProgress(cardProgress, 0.48, 0.78)
       const closingProgress = getSegmentProgress(cardProgress, 0.7, 1)
 
+      setHideLandingScrollCue(changeProgress >= 0.98)
       philosophySection.style.setProperty("--ownership-shift", changeProgress.toFixed(3))
       philosophySection.style.setProperty("--ownership-body-progress", bodyProgress.toFixed(3))
       philosophySection.style.setProperty("--ownership-body-y", getRevealOffset(bodyProgress))
@@ -585,7 +639,7 @@ export default function Hero() {
 
   useEffect(() => {
     const summaryElement = summaryRef.current
-    if (!summaryElement || !summary) {
+    if (!summaryElement || !displayedSummary) {
       setSummaryOverflowing(false)
       return
     }
@@ -594,7 +648,7 @@ export default function Hero() {
     const collapsedHeight = lineHeight * 3
 
     setSummaryOverflowing(summaryElement.scrollHeight > collapsedHeight + 1)
-  }, [summary, summaryExpanded, isReady])
+  }, [displayedSummary, summaryExpanded, isReady])
 
   const generateQuestions = async (source: string) => {
     gtag.questionGenerateRequest({
@@ -607,6 +661,7 @@ export default function Hero() {
     setSummaryOverflowing(false)
     setQuestions([])
     setReflections([])
+    setErrorMessage("")
     setOpenReflectionIndexes(new Set())
     setLastSource(source)
     setGenerationState("loading")
@@ -619,7 +674,10 @@ export default function Hero() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source }),
       }).then(async (response) => {
-        if (!response.ok) throw new Error("Question API request failed")
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as QuestionErrorPayload
+          throw new Error(payload.message || "Question API request failed")
+        }
         return (await response.json()) as QuestionPayload
       })
 
@@ -627,7 +685,7 @@ export default function Hero() {
 
       window.clearTimeout(step1TimerRef.current)
       setLoadingStep(2)
-      await wait(3000)
+      await wait(finalRevealDuration)
 
       setSummary(payload.summary)
       setQuestions(payload.questions)
@@ -642,6 +700,7 @@ export default function Hero() {
     } catch (error) {
       window.clearTimeout(step1TimerRef.current)
       console.error(error)
+      setErrorMessage(error instanceof Error ? error.message : "사유의 흐름이 잠시 끊겼습니다. 다시 한번 텍스트를 직조합니다.")
       setGenerationState("error")
       gtag.questionGenerateFailure({ signed_in: Boolean(user) })
     }
@@ -654,6 +713,7 @@ export default function Hero() {
     setLoadingStep(0)
     setQuestions([])
     setReflections([])
+    setErrorMessage("")
     setOpenReflectionIndexes(new Set())
     setGenerationState("loading")
 
@@ -673,7 +733,7 @@ export default function Hero() {
 
       window.clearTimeout(step1TimerRef.current)
       setLoadingStep(2)
-      await wait(3000)
+      await wait(finalRevealDuration)
 
       setQuestions(payload.questions)
       setReflections(payload.reflections)
@@ -734,7 +794,7 @@ export default function Hero() {
     )
   }
 
-  const handleSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
     const formData = new FormData(event.currentTarget)
@@ -743,6 +803,66 @@ export default function Hero() {
     if (!source) return
 
     await generateQuestions(source)
+  }
+
+  const handleExampleTopic = (topic: string) => {
+    if (landingInputRef.current) {
+      landingInputRef.current.value = topic
+      landingInputRef.current.focus()
+    }
+  }
+
+  const handleFeedbackToggle = () => {
+    setFeedbackOpen((isOpen) => {
+      const nextOpen = !isOpen
+
+      if (nextOpen) {
+        setShowLogin(false)
+      }
+
+      return nextOpen
+    })
+  }
+
+  const handleFeedbackSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const message = feedbackText.trim()
+
+    if (message.length < 2 || feedbackStatus === "sending") {
+      setFeedbackErrorMessage("코멘트는 2자 이상 남겨주세요.")
+      setFeedbackStatus("error")
+      return
+    }
+
+    setFeedbackErrorMessage("")
+    setFeedbackStatus("sending")
+
+    try {
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          pagePath: `${window.location.pathname}${window.location.search}`,
+        }),
+      })
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { message?: string }
+        setFeedbackErrorMessage(payload.message ?? "지금은 기록하지 못했습니다. 잠시 후 다시 남겨주세요.")
+        setFeedbackStatus("error")
+        return
+      }
+    } catch (error) {
+      console.error(error)
+      setFeedbackErrorMessage("네트워크 연결을 확인한 뒤 다시 남겨주세요.")
+      setFeedbackStatus("error")
+      return
+    }
+
+    setFeedbackText("")
+    setFeedbackStatus("sent")
   }
 
   const handleRegenerate = async () => {
@@ -969,7 +1089,10 @@ export default function Hero() {
         ) : (
           <button
             type="button"
-            onClick={() => setShowLogin(true)}
+            onClick={() => {
+              setFeedbackOpen(false)
+              setShowLogin(true)
+            }}
             className="h-10 border border-[#d9ad73]/25 bg-[#f5dfbd]/[0.08] px-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#f5dfbd]/60 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-500 hover:border-[#d9ad73]/55 hover:text-[#f5dfbd]/90 focus:outline-none"
           >
             Login
@@ -1033,6 +1156,124 @@ export default function Hero() {
         </div>
       )}
 
+      <div
+        className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6"
+        style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
+      >
+        {feedbackOpen && (
+          <div
+            role="dialog"
+            aria-modal="false"
+            aria-labelledby="qraft-feedback-title"
+            className="pointer-events-auto w-[calc(100vw-2rem)] max-w-[360px] border border-[#d9ad73]/24 bg-[#120b07]/86 p-5 text-left text-[#f5dfbd] shadow-[0_24px_80px_rgba(8,4,3,0.62)] backdrop-blur-xl"
+            style={{ animation: "qraft-reveal 360ms ease-out forwards" }}
+          >
+            {feedbackStatus === "sent" ? (
+              <div className="text-center">
+                <p className="font-mono text-[9px] font-medium uppercase leading-none tracking-[0.2em] text-[#d2ad7c]/48">
+                  Qraft Field Note
+                </p>
+                <h2
+                  id="qraft-feedback-title"
+                  className="mt-5 text-lg font-medium leading-[1.45] text-[#f5dfbd]/88 [word-break:keep-all]"
+                >
+                  의견 감사합니다.
+                </h2>
+                <p className="mx-auto mt-3 max-w-64 text-xs font-medium leading-[1.7] text-[#f5dfbd]/50 [word-break:keep-all]">
+                  남겨주신 내용은 서비스 개선에 반영하겠습니다.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFeedbackOpen(false)
+                    setFeedbackStatus("idle")
+                  }}
+                  className="mt-6 rounded-full border border-[#d9ad73]/28 bg-[#f5dfbd]/[0.08] px-5 py-2.5 font-mono text-[10px] font-medium uppercase tracking-[0.15em] text-[#f5dfbd]/68 transition-colors duration-300 hover:border-[#efd3a2]/56 hover:bg-[#f5dfbd]/[0.13] hover:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/70"
+                >
+                  닫기
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-4 border-b border-[#d9ad73]/14 pb-4">
+                  <div>
+                    <p className="font-mono text-[9px] font-medium uppercase leading-none tracking-[0.2em] text-[#d2ad7c]/48">
+                      Qraft Field Note
+                    </p>
+                    <h2
+                      id="qraft-feedback-title"
+                      className="mt-3 text-base font-medium leading-[1.45] text-[#f5dfbd]/84 [word-break:keep-all]"
+                    >
+                      서비스를 위해 말씀을 남겨주세요.
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFeedbackOpen(false)}
+                    aria-label="코멘트 닫기"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#d9ad73]/18 bg-[#f5dfbd]/[0.05] text-[#f5dfbd]/45 transition-colors duration-300 hover:border-[#d9ad73]/36 hover:text-[#f5dfbd]/80 focus:outline-none focus-visible:border-[#efd3a2]/65"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <path d="M3.5 3.5L10.5 10.5M10.5 3.5L3.5 10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+
+                <p className="mt-4 text-xs font-medium leading-[1.7] text-[#f5dfbd]/52 [word-break:keep-all]">
+                  짧은 감상, 불편했던 순간, 더 발전했으면 하는 부분 알려주시면 개선에 참고하겠습니다.
+                </p>
+
+                <form onSubmit={handleFeedbackSubmit} className="mt-4">
+                  <textarea
+                    value={feedbackText}
+                    onChange={(event) => {
+                      setFeedbackText(event.target.value)
+                      if (feedbackStatus !== "idle") {
+                        setFeedbackStatus("idle")
+                        setFeedbackErrorMessage("")
+                      }
+                    }}
+                    maxLength={1200}
+                    rows={5}
+                    placeholder="작성 하신 내용은 관리자에게 전달됩니다."
+                    className="min-h-32 w-full resize-none border border-[#d9ad73]/20 bg-[#080403]/32 px-4 py-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/48 focus:bg-[#080403]/44"
+                  />
+
+                  <div className="mt-3 flex items-center justify-between gap-4">
+                    <span className="font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/36">
+                      {feedbackText.length}/1200
+                    </span>
+                    <button
+                      type="submit"
+                      disabled={feedbackStatus === "sending" || feedbackText.trim().length < 2}
+                      className="rounded-full border border-[#d9ad73]/28 bg-[#f5dfbd]/[0.08] px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.15em] text-[#f5dfbd]/68 transition-colors duration-300 hover:border-[#efd3a2]/56 hover:bg-[#f5dfbd]/[0.13] hover:text-[#fff4dc] disabled:cursor-not-allowed disabled:border-[#d9ad73]/12 disabled:text-[#f5dfbd]/28"
+                    >
+                      {feedbackStatus === "sending" ? "기록 중" : "남기기"}
+                    </button>
+                  </div>
+
+                  {feedbackStatus === "error" && (
+                    <p className="mt-3 text-xs font-medium leading-[1.6] text-[#f0b58d]/78">
+                      {feedbackErrorMessage || "지금은 기록하지 못했습니다. 잠시 후 다시 남겨주세요."}
+                    </p>
+                  )}
+                </form>
+              </>
+            )}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handleFeedbackToggle}
+          aria-label="서비스 코멘트 남기기"
+          aria-expanded={feedbackOpen}
+          className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full border border-[#d9ad73]/26 bg-[#120b07]/58 text-[#f5dfbd]/68 shadow-[0_12px_36px_rgba(8,4,3,0.42)] backdrop-blur-xl transition-all duration-500 hover:border-[#efd3a2]/52 hover:bg-[#f5dfbd]/[0.1] hover:text-[#fff4dc] hover:shadow-[0_16px_48px_rgba(245,223,189,0.1)] focus:outline-none focus-visible:border-[#efd3a2]/72"
+        >
+          <span className="font-serif text-base font-medium leading-none">Q</span>
+        </button>
+      </div>
+
       {/* 좌측 상단 네비게이션 */}
       <nav className="absolute left-4 top-4 z-20 flex items-center gap-1.5">
         <button
@@ -1075,6 +1316,18 @@ export default function Hero() {
           className="absolute inset-0 h-full w-full"
           colors={[desert.background, "#2a170e", desert.ember, desert.sand]}
           speed={speed}
+        />
+        <MeshGradient
+          className={`absolute inset-0 h-full w-full transition-opacity duration-[1500ms] ease-in-out ${
+            isLanding && processSectionActive ? "opacity-80" : "opacity-0"
+          }`}
+          colors={processRecordColors}
+          speed={speed * 0.92}
+        />
+        <div
+          className={`absolute inset-0 bg-[#080403]/37 transition-opacity duration-[1500ms] ease-in-out ${
+            isLanding && processSectionActive ? "opacity-100" : "opacity-0"
+          }`}
         />
         <MeshGradient
           className={`absolute inset-0 h-full w-full transition-opacity duration-[1400ms] ease-in-out ${
@@ -1183,6 +1436,7 @@ export default function Hero() {
                       </span>
                     </span>
                     <input
+                      ref={landingInputRef}
                       type="text"
                       name="source"
                       placeholder="링크 또는 주제를 입력해주세요"
@@ -1198,23 +1452,63 @@ export default function Hero() {
                   </button>
                 </form>
 
+                <div
+                  className={`${
+                    shouldHideLandingIntro
+                      ? "opacity-0"
+                      : shouldPlayLandingIntro
+                        ? "qraft-example-topics opacity-100"
+                        : "opacity-100"
+                  } pointer-events-auto mt-5 flex w-full max-w-3xl flex-col items-center gap-2.5`}
+                  style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
+                >
+                  {exampleTopicRows.map((topics, rowIndex) => (
+                    <div key={rowIndex} className="flex flex-wrap justify-center gap-2.5">
+                      {topics.map((topic, topicIndex) => {
+                        const topicOrder = exampleTopicDelayOrder[rowIndex * 5 + topicIndex] ?? topicIndex
+                        const delay = 3650 + topicOrder * 65
+
+                        return (
+                          <button
+                            type="button"
+                            key={topic}
+                            onClick={() => handleExampleTopic(topic)}
+                            className={`qraft-example-topic rounded-full border border-[#d9ad73]/20 bg-[#120b07]/24 px-4 py-2 text-[12px] font-medium leading-none text-[#f5dfbd]/60 shadow-[0_8px_24px_rgba(13,8,5,0.18)] backdrop-blur-md transition-colors duration-300 hover:border-[#d9ad73]/45 hover:bg-[#f5dfbd]/[0.09] hover:text-[#f5dfbd]/86 focus:outline-none focus-visible:border-[#efd3a2]/70 ${
+                              shouldPlayLandingIntro ? "qraft-example-topic-arrive" : ""
+                            }`}
+                            style={{ "--topic-delay": `${delay}ms` } as CSSProperties}
+                          >
+                            {topic}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ))}
+                </div>
+
               </div>
 
               <div
                 aria-hidden="true"
-                className={`qraft-scroll-cue absolute bottom-[6.5vh] left-1/2 -translate-x-1/2 ${
-                  shouldHideLandingIntro ? "opacity-0" : ""
+                className={`absolute bottom-[6.5vh] left-1/2 -translate-x-1/2 transition-opacity duration-700 ease-out ${
+                  shouldHideLandingIntro || hideLandingScrollCue
+                    ? "opacity-0"
+                    : "opacity-100"
                 }`}
               >
-                <svg width="24" height="24" viewBox="0 0 18 18" fill="none">
-                  <path
-                    d="M4.5 7.25L9 11.75L13.5 7.25"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="1"
-                  />
-                </svg>
+                <div className="qraft-scroll-cue-shell">
+                  <div className="qraft-scroll-cue">
+                    <svg width="24" height="24" viewBox="0 0 18 18" fill="none">
+                      <path
+                        d="M4.5 7.25L9 11.75L13.5 7.25"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1"
+                      />
+                    </svg>
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -1297,7 +1591,7 @@ export default function Hero() {
                           {phase.label}
                         </p>
                       </div>
-                      <p className="qraft-phase-copy mt-8 text-sm font-medium leading-[1.78] text-[#f5dfbd] [word-break:keep-all] sm:text-[15px]">
+                      <p className="qraft-phase-copy mt-8 text-sm font-medium leading-[1.82] [word-break:keep-all] sm:text-[15px]">
                         {phase.copy}
                       </p>
                     </article>
@@ -1345,6 +1639,18 @@ export default function Hero() {
                 >
                   — 어느 기록자의 메모 중에서
                 </p>
+              </div>
+            </section>
+
+            <section className="w-full px-6 pb-24 pt-0 sm:pb-32">
+              <div className="mx-auto flex w-full max-w-4xl justify-center">
+                <button
+                  type="button"
+                  onClick={scrollToQuestionInput}
+                  className="pointer-events-auto rounded-full border border-[#d9ad73]/32 bg-[#f5dfbd]/[0.09] px-7 py-3.5 font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-[#f5dfbd]/72 shadow-[0_18px_55px_rgba(13,8,5,0.36)] backdrop-blur-xl transition-all duration-500 hover:border-[#efd3a2]/62 hover:bg-[#f5dfbd]/[0.14] hover:text-[#fff4dc] hover:shadow-[0_22px_70px_rgba(245,223,189,0.1)] focus:outline-none focus-visible:border-[#efd3a2]/80"
+                >
+                  질문하러 가기
+                </button>
               </div>
             </section>
           </>
@@ -1402,7 +1708,14 @@ export default function Hero() {
                         }
                   }
                 >
-                  {summary}
+                  {displayedSummaryLines.map((line, index) => (
+                    <span
+                      className={`block ${index > 0 && /^\d+\.\s/.test(line) && !/^\d+\.\s/.test(displayedSummaryLines[index - 1] ?? "") ? "mt-2" : ""}`}
+                      key={`${line}-${index}`}
+                    >
+                      {line}
+                    </span>
+                  ))}
                 </p>
                 {summaryOverflowing && (
                   <button
@@ -1493,7 +1806,7 @@ export default function Hero() {
             style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif', animation: "qraft-reveal 800ms ease-out forwards" }}
           >
             <p className="text-sm font-medium leading-[1.7] text-[#f5dfbd]/75 sm:text-base">
-              사유의 흐름이 잠시 끊겼습니다. 다시 한번 텍스트를 직조합니다.
+              {errorMessage || "사유의 흐름이 잠시 끊겼습니다. 다시 한번 텍스트를 직조합니다."}
             </p>
             <button
               type="button"

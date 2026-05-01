@@ -2,6 +2,9 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react"
 
+const BGM_SRC = "/bgm.mp3"
+const BGM_VOLUME = 0.82
+
 type BgmContextType = {
   bgmOn: boolean
   toggleBgm: () => void
@@ -17,12 +20,14 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const bgmOnRef = useRef(true)
 
-  const playAudio = useCallback(async (audio = audioRef.current) => {
+  const playAudio = useCallback(async () => {
+    const audio = audioRef.current
     if (!audio || !bgmOnRef.current) return false
 
-    audio.preload = "auto"
-    audio.volume = 0.82
+    audio.loop = true
     audio.muted = false
+    audio.preload = "auto"
+    audio.volume = BGM_VOLUME
 
     if (audio.readyState === 0) {
       audio.load()
@@ -39,7 +44,13 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
   const setAudioElement = useCallback(
     (audio: HTMLAudioElement | null) => {
       audioRef.current = audio
-      void playAudio(audio)
+
+      if (audio) {
+        audio.loop = true
+        audio.preload = "auto"
+        audio.volume = BGM_VOLUME
+        void playAudio()
+      }
     },
     [playAudio]
   )
@@ -47,20 +58,22 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     const audio = audioRef.current
     if (!audio) return
-    void playAudio(audio)
 
     const playWhenReady = () => {
-      void playAudio(audio)
+      void playAudio()
     }
-    const playDelays = [80, 240, 640, 1200]
-    const playTimers = playDelays.map((delay) => window.setTimeout(playWhenReady, delay))
+
+    const retryDelays = [60, 180, 420, 900, 1800, 3200]
+    const retryTimers = retryDelays.map((delay) => window.setTimeout(playWhenReady, delay))
+
+    playWhenReady()
 
     audio.addEventListener("canplay", playWhenReady)
     audio.addEventListener("loadeddata", playWhenReady)
     audio.addEventListener("canplaythrough", playWhenReady)
 
     return () => {
-      playTimers.forEach((timer) => window.clearTimeout(timer))
+      retryTimers.forEach((timer) => window.clearTimeout(timer))
       audio.removeEventListener("canplay", playWhenReady)
       audio.removeEventListener("loadeddata", playWhenReady)
       audio.removeEventListener("canplaythrough", playWhenReady)
@@ -75,7 +88,7 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
     if (!audio) return
 
     if (bgmOn) {
-      void playAudio(audio)
+      void playAudio()
     } else {
       audio.pause()
     }
@@ -91,6 +104,8 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener("touchstart", playOnInteraction)
       window.removeEventListener("wheel", playOnInteraction)
       window.removeEventListener("keydown", playOnInteraction)
+      window.removeEventListener("focus", playOnInteraction)
+      document.removeEventListener("visibilitychange", playOnVisibility)
     }
 
     const playOnInteraction = () => {
@@ -101,12 +116,20 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
       })
     }
 
+    const playOnVisibility = () => {
+      if (document.visibilityState === "visible") {
+        playOnInteraction()
+      }
+    }
+
     window.addEventListener("click", playOnInteraction)
     window.addEventListener("pointerdown", playOnInteraction)
     window.addEventListener("mousedown", playOnInteraction)
     window.addEventListener("touchstart", playOnInteraction, { passive: true })
     window.addEventListener("wheel", playOnInteraction, { passive: true })
     window.addEventListener("keydown", playOnInteraction)
+    window.addEventListener("focus", playOnInteraction)
+    document.addEventListener("visibilitychange", playOnVisibility)
 
     return () => {
       removeInteractionListeners()
@@ -115,7 +138,7 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <BgmContext.Provider value={{ bgmOn, toggleBgm: () => setBgmOn((value) => !value) }}>
-      <audio ref={setAudioElement} src="/bgm-start.mp3" loop autoPlay preload="auto" playsInline />
+      <audio ref={setAudioElement} src={BGM_SRC} loop autoPlay preload="auto" playsInline />
       {children}
     </BgmContext.Provider>
   )

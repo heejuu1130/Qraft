@@ -1272,15 +1272,15 @@ export default function Hero() {
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
-              d="M11.6 4.6C7.55 4.6 4.55 7.63 4.55 11.52C4.55 15.42 7.55 18.45 11.6 18.45C15.65 18.45 18.65 15.42 18.65 11.52C18.65 7.63 15.65 4.6 11.6 4.6Z"
+              d="M12 18.85C15.78 18.85 18.85 15.78 18.85 12C18.85 8.22 15.78 5.15 12 5.15C8.22 5.15 5.15 8.22 5.15 12C5.15 15.78 8.22 18.85 12 18.85Z"
               stroke="currentColor"
-              strokeWidth="1.9"
+              strokeWidth="1.75"
             />
             <path
-              d="M15.35 15.85L19.35 19.55"
+              d="M15.9 15.95L19.25 19.25"
               stroke="currentColor"
               strokeLinecap="round"
-              strokeWidth="2"
+              strokeWidth="1.9"
             />
           </svg>
         </button>

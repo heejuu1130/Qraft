@@ -1270,7 +1270,7 @@ export default function Hero() {
           aria-expanded={feedbackOpen}
           className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-[#d9ad73]/26 bg-[#120b07]/58 text-[#f5dfbd]/68 shadow-[0_12px_36px_rgba(8,4,3,0.42)] backdrop-blur-xl transition-all duration-500 hover:border-[#efd3a2]/52 hover:bg-[#f5dfbd]/[0.1] hover:text-[#fff4dc] hover:shadow-[0_16px_48px_rgba(245,223,189,0.1)] focus:outline-none focus-visible:border-[#efd3a2]/72"
         >
-          <span className="font-serif text-base font-medium leading-none">Q</span>
+          <span className="-translate-y-px font-serif text-base font-medium leading-none">Q</span>
         </button>
       </div>
 

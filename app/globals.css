@@ -25,6 +25,24 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+.qraft-ready-card {
+  max-height: calc(100dvh - 48px);
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 640px) {
+  .qraft-ready-card {
+    max-height: none;
+  }
+
+  .qraft-reflection {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+}
+
 @keyframes qraft-reveal {
   0% {
     opacity: 0;

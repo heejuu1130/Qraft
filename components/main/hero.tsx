@@ -791,7 +791,7 @@ export default function Hero() {
       {/* 메인 콘텐츠 */}
       <div
         className={`pointer-events-none absolute inset-0 z-10 flex flex-col items-center px-6 text-center ${
-          isReady ? "justify-start overflow-y-auto py-24" : "justify-center"
+          isReady ? "justify-center overflow-hidden py-6 sm:justify-start sm:overflow-y-auto sm:py-24" : "justify-center"
         }`}
         style={{ fontFamily: '"Outfit", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
       >
@@ -872,7 +872,7 @@ export default function Hero() {
 
         {isReady && (
           <div
-            className="pointer-events-auto mt-8 w-full max-w-xl border border-[#d9ad73]/25 bg-[#120b07]/55 p-6 text-left shadow-[0_24px_80px_rgba(13,8,5,0.52)] backdrop-blur-xl sm:p-8"
+            className="qraft-ready-card pointer-events-auto w-full max-w-xl overflow-y-auto overscroll-contain border border-[#d9ad73]/25 bg-[#120b07]/55 p-6 text-left shadow-[0_24px_80px_rgba(13,8,5,0.52)] backdrop-blur-xl sm:mt-8 sm:p-8"
             style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif', animation: "qraft-reveal 800ms ease-out forwards" }}
           >
             {summary && (
@@ -965,13 +965,7 @@ export default function Hero() {
                         </button>
                         {openReflectionIndexes.has(i) && (
                           <p
-                            className="mt-3 whitespace-pre-line text-sm font-medium leading-[1.7] text-[#f5dfbd]/62 [overflow-wrap:anywhere] [word-break:keep-all] sm:text-[15px]"
-                            style={{
-                              display: "-webkit-box",
-                              WebkitBoxOrient: "vertical",
-                              WebkitLineClamp: 3,
-                              overflow: "hidden",
-                            }}
+                            className="qraft-reflection mt-3 whitespace-pre-line text-sm font-medium leading-[1.7] text-[#f5dfbd]/62 [overflow-wrap:anywhere] [word-break:keep-all] sm:text-[15px]"
                           >
                             {reflections[i]}
                           </p>

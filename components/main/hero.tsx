@@ -343,7 +343,6 @@ const formatSummaryForDisplay = (value: string) =>
   value
     .replace(/\r\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
-    .replace(/\n(?!\n)(?=1\.\s)/, "\n\n")
 const getSummaryDisplayLines = (value: string) =>
   value
     .replace(/\r\n/g, "\n")
@@ -420,15 +419,8 @@ export default function Hero() {
   const isLoading = generationState === "loading"
   const isReady = generationState === "ready"
   const isLanding = generationState === "idle"
-  const currentLandingIntroPhase = landingIntroPhase as string
-  const normalizedLandingIntroPhase: LandingIntroPhase =
-    currentLandingIntroPhase === "waiting" ||
-    currentLandingIntroPhase === "playing" ||
-    currentLandingIntroPhase === "settled"
-      ? (currentLandingIntroPhase as LandingIntroPhase)
-      : "waiting"
-  const shouldPlayLandingIntro = normalizedLandingIntroPhase === "playing"
-  const shouldHideLandingIntro = normalizedLandingIntroPhase === "waiting"
+  const shouldPlayLandingIntro = landingIntroPhase === "playing"
+  const shouldHideLandingIntro = landingIntroPhase === "waiting"
   const isRevealing = isLoading && loadingStep === 2
   const isRefined = isLoading || isReady
   const baseSpeed = isRefined ? 0.25 : 0.5
@@ -477,7 +469,7 @@ export default function Hero() {
   }, [])
 
   useEffect(() => {
-    if (!isLanding || normalizedLandingIntroPhase !== "waiting") return
+    if (!isLanding || landingIntroPhase !== "waiting") return
 
     const startTimer = window.setTimeout(() => {
       setLandingIntroPhase("playing")
@@ -490,7 +482,7 @@ export default function Hero() {
       window.clearTimeout(startTimer)
       window.clearTimeout(settleTimer)
     }
-  }, [isLanding, normalizedLandingIntroPhase])
+  }, [isLanding, landingIntroPhase])
 
   useEffect(() => {
     if (!isLanding) return
@@ -983,10 +975,6 @@ export default function Hero() {
 
     setFeedbackText("")
     setFeedbackStatus("sent")
-  }
-
-  const handleRegenerate = async () => {
-    await runRegenerate()
   }
 
   const saveQuestion = async (
@@ -1845,7 +1833,7 @@ export default function Hero() {
                 </p>
                 <p
                   ref={summaryRef}
-                  className="mt-3 whitespace-pre-line text-sm font-medium leading-[1.7] text-[#f5dfbd]/62 [overflow-wrap:anywhere] [word-break:keep-all] sm:text-[15px]"
+                  className="mt-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/62 [overflow-wrap:anywhere] [word-break:keep-all] sm:text-[15px]"
                   style={
                     summaryExpanded
                       ? { maxHeight: "17em", overflowY: "auto" }
@@ -1884,7 +1872,8 @@ export default function Hero() {
               </p>
               <button
                 type="button"
-                onClick={handleRegenerate}
+                disabled={isLoading}
+                onClick={runRegenerate}
                 className="border border-[#d9ad73]/25 bg-[#f5dfbd]/[0.08] px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/70 transition-colors duration-300 hover:border-[#d9ad73]/55 hover:bg-[#f5dfbd]/[0.12] hover:text-[#f5dfbd]/90 focus:outline-none"
               >
                 재생성
@@ -1935,7 +1924,7 @@ export default function Hero() {
                         </button>
                         {openReflectionIndexes.has(i) && (
                           <p
-                            className="qraft-reflection mt-3 whitespace-pre-line text-sm font-medium leading-[1.7] text-[#f5dfbd]/62 [overflow-wrap:anywhere] [word-break:keep-all] sm:text-[15px]"
+                            className="qraft-reflection mt-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/62 [overflow-wrap:anywhere] [word-break:keep-all] sm:text-[15px]"
                           >
                             {reflections[i]}
                           </p>

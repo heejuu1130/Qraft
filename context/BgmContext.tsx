@@ -20,6 +20,8 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const bgmOnRef = useRef(true)
 
+  const toggleBgm = useCallback(() => setBgmOn((v) => !v), [])
+
   const playAudio = useCallback(async () => {
     const audio = audioRef.current
     if (!audio || !bgmOnRef.current) return false
@@ -137,7 +139,7 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
   }, [bgmOn, playAudio])
 
   return (
-    <BgmContext.Provider value={{ bgmOn, toggleBgm: () => setBgmOn((value) => !value) }}>
+    <BgmContext.Provider value={{ bgmOn, toggleBgm }}>
       <audio ref={setAudioElement} src={BGM_SRC} loop autoPlay preload="auto" playsInline />
       {children}
     </BgmContext.Provider>

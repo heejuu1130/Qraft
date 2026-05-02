@@ -1653,7 +1653,7 @@ export default function Hero() {
                       02 / Philosophy
                     </p>
                     <div className="mt-6 h-px w-full bg-[#d9ad73]/16" />
-                    <h2 className="qraft-ownership-heading mt-8 text-2xl font-medium leading-[1.22] tracking-normal [word-break:keep-all] sm:text-3xl lg:text-[34px]">
+                    <h2 className="mt-8 text-2xl font-medium leading-[1.22] tracking-normal [word-break:keep-all] sm:text-3xl lg:text-[34px]">
                       {ownershipQuestionLines.map((line, index) => (
                         <span
                           key={line}

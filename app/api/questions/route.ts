@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk"
+import { createRouteClient } from "@/lib/supabase/route"
 
 const client = new Anthropic({ timeout: 30000 })
 
@@ -85,6 +86,16 @@ type QuestionRequest = {
 
 const LINK_PARSE_FAILURE_MESSAGE =
   "링크의 내용을 파악하는 데 실패했습니다. 다시 시도하거나 키워드로 시작해 보시겠어요?"
+const TOKEN_EXHAUSTED_CODE = "TOKEN_EXHAUSTED"
+const TOKEN_EXHAUSTED_MESSAGE =
+  "토큰이 다 떨어져서 질문을 생성할 수 없습니다. 금방 관리자의 사비를 들여 채워보도록하겠습니다.."
+
+type TokenAlertPayload = {
+  mode: "generate" | "regenerate"
+  sourceKind?: SourceKind | "summary"
+  request: Request
+  error: unknown
+}
 
 function isUrl(str: string): boolean {
   try {
@@ -335,6 +346,120 @@ function linkParseFailureResponse() {
   )
 }
 
+function getErrorParts(error: unknown) {
+  const parts: string[] = []
+
+  if (error instanceof Error) {
+    parts.push(error.message)
+  }
+
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>
+
+    if (typeof record.type === "string") {
+      parts.push(record.type)
+    }
+    if (typeof record.status === "number") {
+      parts.push(String(record.status))
+    }
+
+    const apiError = record.error
+    if (apiError && typeof apiError === "object") {
+      const apiErrorRecord = apiError as Record<string, unknown>
+
+      if (typeof apiErrorRecord.type === "string") {
+        parts.push(apiErrorRecord.type)
+      }
+      if (typeof apiErrorRecord.message === "string") {
+        parts.push(apiErrorRecord.message)
+      }
+    }
+  }
+
+  return parts
+}
+
+function isTokenExhaustedError(error: unknown) {
+  const text = getErrorParts(error).join(" ").toLowerCase()
+
+  return (
+    text.includes("billing_error") ||
+    text.includes("insufficient_quota") ||
+    text.includes("credit") ||
+    text.includes("balance") ||
+    text.includes("billing") ||
+    text.includes("quota") ||
+    text.includes("spend limit")
+  )
+}
+
+function tokenExhaustedResponse() {
+  return Response.json(
+    {
+      message: TOKEN_EXHAUSTED_MESSAGE,
+      code: TOKEN_EXHAUSTED_CODE,
+      retryable: false,
+    },
+    { status: 402 }
+  )
+}
+
+async function notifyTokenExhausted({ mode, sourceKind, request, error }: TokenAlertPayload) {
+  const errorSummary = getErrorParts(error).join(" | ")
+  const alertText = `[Qraft] 토큰/크레딧 부족으로 질문 생성 실패 (${mode})`
+  const path = new URL(request.url).pathname
+  const userAgent = request.headers.get("user-agent")?.slice(0, 500) ?? null
+  const payload = {
+    text: alertText,
+    content: alertText,
+    event: "qraft_token_exhausted",
+    mode,
+    sourceKind,
+    path,
+    userAgent,
+    error: errorSummary.slice(0, 1000),
+    createdAt: new Date().toISOString(),
+  }
+  const webhookUrl = process.env.QRAFT_TOKEN_ALERT_WEBHOOK_URL?.trim()
+
+  console.error("Qraft token alert", payload)
+
+  try {
+    const { supabase } = await createRouteClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    const { error: insertError } = await supabase.from("token_alerts").insert({
+      user_id: user?.id ?? null,
+      event: payload.event,
+      mode,
+      source_kind: sourceKind ?? null,
+      page_path: path,
+      user_agent: userAgent,
+      error: payload.error,
+    })
+
+    if (insertError) {
+      console.error("Qraft token alert Supabase insert failed", insertError)
+    }
+  } catch (supabaseError) {
+    console.error("Qraft token alert Supabase insert failed", supabaseError)
+  }
+
+  if (!webhookUrl) return
+
+  try {
+    await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(4000),
+    })
+  } catch (notificationError) {
+    console.error("Qraft token alert failed", notificationError)
+  }
+}
+
 export async function POST(request: Request) {
   let body: QuestionRequest
 
@@ -367,6 +492,11 @@ export async function POST(request: Request) {
       raw = response.content[0].type === "text" ? response.content[0].text.trim() : ""
     } catch (error) {
       console.error(error)
+      if (isTokenExhaustedError(error)) {
+        await notifyTokenExhausted({ mode: "regenerate", sourceKind: "summary", request, error })
+        return tokenExhaustedResponse()
+      }
+
       return Response.json({ questions: FALLBACK_QUESTIONS, reflections: FALLBACK_REFLECTIONS })
     }
 
@@ -453,6 +583,11 @@ export async function POST(request: Request) {
     raw = response.content[0].type === "text" ? response.content[0].text.trim() : ""
   } catch (error) {
     console.error(error)
+    if (isTokenExhaustedError(error)) {
+      await notifyTokenExhausted({ mode: "generate", sourceKind, request, error })
+      return tokenExhaustedResponse()
+    }
+
     return Response.json({
       summary: FALLBACK_SUMMARY,
       questions: FALLBACK_QUESTIONS,

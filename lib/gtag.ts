@@ -30,6 +30,7 @@ export const gtag = {
   questionRegenerateSuccess: (params?: Record<string, unknown>) =>
     send("question_regenerate_success", params),
   questionRegenerateFailure: () => send("question_regenerate_failure"),
+  tokenExhausted: (params?: Record<string, unknown>) => send("token_exhausted", params),
   loginStart: (provider: LoginProvider) => {
     send("login_start", { method: provider })
     if (typeof window === "undefined") return

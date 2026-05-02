@@ -71,6 +71,7 @@ const phaseCards = [
 
 const landingTitle = "Qraft"
 const landingCopy = "답이 아니라 질문이 사람을 깊게 만듭니다"
+const midnightInsightCopy = "모두가 잠든 시간, 당신의 생각만이 가득합니다"
 const exampleTopics = [
   "알고리즘과 주체성",
   "AI 시대의 인간성",
@@ -244,6 +245,10 @@ const refiningStepDuration = refiningDuration / 3
 const finalRevealDuration = 900
 const regenerateDuration = 900
 const regenerateStepDuration = 600
+const tokenExhaustedCode = "TOKEN_EXHAUSTED"
+const tokenExhaustedMessage =
+  "토큰이 다 떨어져서 질문을 생성할 수 없습니다. 금방 관리자의 사비를 들여 채워보도록하겠습니다.."
+const tokenExhaustedNoticeDuration = 1800
 const questionHistoryStorageKey = "qraft:question-history"
 const pendingSaveStorageKey = "qraft:pending-save"
 const currentResultStorageKey = "qraft:current-result"
@@ -252,6 +257,18 @@ const wait = (duration: number) =>
   new Promise<void>((resolve) => {
     window.setTimeout(resolve, duration)
   })
+
+const createQuestionApiError = (payload: QuestionErrorPayload, fallbackMessage: string) => {
+  const error = new Error(payload.message || fallbackMessage) as Error & { code?: string; retryable?: boolean }
+
+  error.code = payload.code
+  error.retryable = payload.retryable
+
+  return error
+}
+
+const isTokenExhaustedClientError = (error: unknown) =>
+  error instanceof Error && (error as Error & { code?: string }).code === tokenExhaustedCode
 
 const navButtonClass =
   "flex h-10 w-10 items-center justify-center border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.08] text-[#f5dfbd]/55 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-500 hover:border-[#d9ad73]/55 hover:text-[#f5dfbd]/90 focus:outline-none focus-visible:border-[#d9ad73]/70"
@@ -337,6 +354,7 @@ const getSummaryDisplayLines = (value: string) =>
 export default function Hero() {
   const [generationState, setGenerationState] = useState<GenerationState>("idle")
   const [loadingStep, setLoadingStep] = useState(0)
+  const [loadingNotice, setLoadingNotice] = useState("")
   const [summary, setSummary] = useState("")
   const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [summaryOverflowing, setSummaryOverflowing] = useState(false)
@@ -349,9 +367,9 @@ export default function Hero() {
   const [savedQuestionIds, setSavedQuestionIds] = useState<Map<string, string>>(() => new Map())
   const [showLogin, setShowLogin] = useState(false)
   const [landingIntroPhase, setLandingIntroPhase] = useState<LandingIntroPhase>("waiting")
+  const [isMidnightInsight, setIsMidnightInsight] = useState(false)
   const [silentSectionActive, setSilentSectionActive] = useState(false)
   const [silentQuoteActive, setSilentQuoteActive] = useState(false)
-  const [section3Visible, setSection3Visible] = useState(false)
   const [processSectionActive, setProcessSectionActive] = useState(false)
   const [hideLandingScrollCue, setHideLandingScrollCue] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
@@ -362,9 +380,9 @@ export default function Hero() {
   const landingInputRef = useRef<HTMLInputElement>(null)
   const philosophySectionRef = useRef<HTMLElement>(null)
   const philosophyCardRef = useRef<HTMLDivElement>(null)
-  const ownershipChangeLineRef = useRef<HTMLSpanElement>(null)
   const section3Ref = useRef<HTMLElement>(null)
   const silentSectionRef = useRef<HTMLElement>(null)
+  const feedbackWidgetRef = useRef<HTMLDivElement>(null)
   const pendingSaveRestoredRef = useRef(false)
   const step1TimerRef = useRef<number | undefined>(undefined)
 
@@ -413,7 +431,8 @@ export default function Hero() {
   const shouldHideLandingIntro = normalizedLandingIntroPhase === "waiting"
   const isRevealing = isLoading && loadingStep === 2
   const isRefined = isLoading || isReady
-  const speed = isRefined ? 0.25 : 0.5
+  const baseSpeed = isRefined ? 0.25 : 0.5
+  const speed = isMidnightInsight ? baseSpeed * 0.5 : baseSpeed
   const backgroundTreatment = isReady
     ? "scale-[1.03] blur-[14px]"
     : isRevealing
@@ -421,6 +440,7 @@ export default function Hero() {
       : isLoading
         ? "scale-[1.03] blur-[14px]"
         : "scale-100 blur-0"
+  const landingDisplayCopy = isMidnightInsight ? midnightInsightCopy : landingCopy
   const displayedSummary = formatSummaryForDisplay(summary)
   const displayedSummaryLines = getSummaryDisplayLines(displayedSummary)
 
@@ -428,12 +448,26 @@ export default function Hero() {
     window.sessionStorage.removeItem(currentResultStorageKey)
     setLandingIntroPhase("settled")
     setGenerationState("idle")
+    setLoadingNotice("")
   }
 
   const scrollToQuestionInput = () => {
     window.scrollTo({ top: 0, behavior: "smooth" })
     window.setTimeout(() => landingInputRef.current?.focus(), 650)
   }
+
+  useEffect(() => {
+    const updateMidnightInsight = () => {
+      const hour = new Date().getHours()
+
+      setIsMidnightInsight(hour >= 0 && hour < 4)
+    }
+
+    updateMidnightInsight()
+    const timer = window.setInterval(updateMidnightInsight, 60000)
+
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     if ("scrollRestoration" in history) {
@@ -462,22 +496,55 @@ export default function Hero() {
     if (!isLanding) return
 
     const section3 = section3Ref.current
-    if (!section3 || !("IntersectionObserver" in window)) return
+    if (!section3) return
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) setSection3Visible(true)
-        setProcessSectionActive(entry.isIntersecting && entry.intersectionRatio > 0.14)
-      },
-      {
-        rootMargin: "-14% 0px -20% 0px",
-        threshold: [0, 0.05, 0.14, 0.36],
+    let frameId: number | undefined
+    let active = false
+
+    const updateProcessReveal = () => {
+      frameId = undefined
+
+      const rect = section3.getBoundingClientRect()
+      const viewportHeight = window.innerHeight
+      const sectionProgress = getViewportProgress(viewportHeight * 0.9, viewportHeight * 0.36, rect.top)
+      const headerProgress = getSegmentProgress(sectionProgress, 0.08, 0.36)
+      const cardStarts = [0.32, 0.5, 0.68]
+
+      section3.style.setProperty("--process-header-progress", headerProgress.toFixed(3))
+      section3.style.setProperty("--process-header-y", getRevealOffset(headerProgress, 54))
+
+      cardStarts.forEach((start, index) => {
+        const cardProgress = getSegmentProgress(sectionProgress, start, start + 0.3)
+
+        section3.style.setProperty(`--process-card-${index + 1}-progress`, cardProgress.toFixed(3))
+        section3.style.setProperty(`--process-card-${index + 1}-y`, getRevealOffset(cardProgress, 54))
+      })
+
+      const nextActive = rect.top < viewportHeight * 0.72 && rect.bottom > viewportHeight * 0.24
+
+      if (active !== nextActive) {
+        active = nextActive
+        setProcessSectionActive(nextActive)
       }
-    )
+    }
 
-    observer.observe(section3)
+    const queueProcessReveal = () => {
+      if (frameId !== undefined) return
+      frameId = window.requestAnimationFrame(updateProcessReveal)
+    }
 
-    return () => observer.disconnect()
+    queueProcessReveal()
+    window.addEventListener("scroll", queueProcessReveal, { passive: true })
+    window.addEventListener("resize", queueProcessReveal)
+
+    return () => {
+      window.removeEventListener("scroll", queueProcessReveal)
+      window.removeEventListener("resize", queueProcessReveal)
+
+      if (frameId !== undefined) {
+        window.cancelAnimationFrame(frameId)
+      }
+    }
   }, [isLanding])
 
   useEffect(() => {
@@ -656,6 +723,7 @@ export default function Hero() {
       source_type: isUrlLike(source) ? "url" : source.length < 100 ? "topic" : "text",
     })
     setLoadingStep(0)
+    setLoadingNotice("")
     setSummary("")
     setSummaryExpanded(false)
     setSummaryOverflowing(false)
@@ -676,7 +744,7 @@ export default function Hero() {
       }).then(async (response) => {
         if (!response.ok) {
           const payload = (await response.json().catch(() => ({}))) as QuestionErrorPayload
-          throw new Error(payload.message || "Question API request failed")
+          throw createQuestionApiError(payload, "Question API request failed")
         }
         return (await response.json()) as QuestionPayload
       })
@@ -691,6 +759,7 @@ export default function Hero() {
       setQuestions(payload.questions)
       setReflections(payload.reflections)
       await saveHistory(source, payload)
+      setLoadingNotice("")
       setGenerationState("ready")
       gtag.questionGenerateSuccess({
         signed_in: Boolean(user),
@@ -700,7 +769,22 @@ export default function Hero() {
     } catch (error) {
       window.clearTimeout(step1TimerRef.current)
       console.error(error)
-      setErrorMessage(error instanceof Error ? error.message : "사유의 흐름이 잠시 끊겼습니다. 다시 한번 텍스트를 직조합니다.")
+      const isTokenExhausted = isTokenExhaustedClientError(error)
+
+      if (isTokenExhausted) {
+        setLoadingStep(1)
+        setLoadingNotice(tokenExhaustedMessage)
+        gtag.tokenExhausted({ flow: "generate", signed_in: Boolean(user) })
+        await wait(tokenExhaustedNoticeDuration)
+      }
+
+      setErrorMessage(
+        isTokenExhausted
+          ? tokenExhaustedMessage
+          : error instanceof Error
+            ? error.message
+            : "사유의 흐름이 잠시 끊겼습니다. 다시 한번 텍스트를 직조합니다."
+      )
       setGenerationState("error")
       gtag.questionGenerateFailure({ signed_in: Boolean(user) })
     }
@@ -711,6 +795,7 @@ export default function Hero() {
 
     gtag.questionRegenerateRequest()
     setLoadingStep(0)
+    setLoadingNotice("")
     setQuestions([])
     setReflections([])
     setErrorMessage("")
@@ -725,7 +810,10 @@ export default function Hero() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source: lastSource, summary }),
       }).then(async (response) => {
-        if (!response.ok) throw new Error("Regenerate API request failed")
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as QuestionErrorPayload
+          throw createQuestionApiError(payload, "Regenerate API request failed")
+        }
         return (await response.json()) as { questions: string[]; reflections: string[] }
       })
 
@@ -737,6 +825,7 @@ export default function Hero() {
 
       setQuestions(payload.questions)
       setReflections(payload.reflections)
+      setLoadingNotice("")
       setGenerationState("ready")
       gtag.questionRegenerateSuccess({
         question_count: payload.questions.length,
@@ -745,6 +834,16 @@ export default function Hero() {
     } catch (error) {
       window.clearTimeout(step1TimerRef.current)
       console.error(error)
+      const isTokenExhausted = isTokenExhaustedClientError(error)
+
+      if (isTokenExhausted) {
+        setLoadingStep(1)
+        setLoadingNotice(tokenExhaustedMessage)
+        gtag.tokenExhausted({ flow: "regenerate" })
+        await wait(tokenExhaustedNoticeDuration)
+      }
+
+      setErrorMessage(isTokenExhausted ? tokenExhaustedMessage : "질문을 다시 만들지 못했습니다. 잠시 후 다시 시도해 주세요.")
       setGenerationState("error")
       gtag.questionRegenerateFailure()
     }
@@ -823,6 +922,27 @@ export default function Hero() {
       return nextOpen
     })
   }
+
+  useEffect(() => {
+    if (!feedbackOpen) return
+
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const feedbackWidget = feedbackWidgetRef.current
+
+      if (feedbackWidget && event.target instanceof Node && feedbackWidget.contains(event.target)) {
+        return
+      }
+
+      setFeedbackOpen(false)
+      if (feedbackStatus === "sent") {
+        setFeedbackStatus("idle")
+      }
+    }
+
+    window.addEventListener("pointerdown", handleOutsidePointerDown)
+
+    return () => window.removeEventListener("pointerdown", handleOutsidePointerDown)
+  }, [feedbackOpen, feedbackStatus])
 
   const handleFeedbackSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1157,6 +1277,7 @@ export default function Hero() {
       )}
 
       <div
+        ref={feedbackWidgetRef}
         className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6"
         style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
       >
@@ -1235,7 +1356,7 @@ export default function Hero() {
                     }}
                     maxLength={1200}
                     rows={5}
-                    placeholder="작성 하신 내용은 관리자에게 전달됩니다."
+                    placeholder="작성하신 내용은 관리자에게 전달됩니다."
                     className="min-h-32 w-full resize-none border border-[#d9ad73]/20 bg-[#080403]/32 px-4 py-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/48 focus:bg-[#080403]/44"
                   />
 
@@ -1368,7 +1489,13 @@ export default function Hero() {
       {/* 오버레이 */}
       <div
         className={`pointer-events-none ${isLanding ? "fixed" : "absolute"} inset-0 transition-colors duration-[1600ms] ease-in-out ${
-          isReady ? "bg-[#120b07]/84" : isRevealing ? "bg-[#120b07]/68" : "bg-[#120b07]/35"
+          isReady
+            ? "bg-[#120b07]/84"
+            : isRevealing
+              ? "bg-[#120b07]/68"
+              : isLanding && isMidnightInsight
+                  ? "bg-[#080403]/58"
+                  : "bg-[#120b07]/35"
         }`}
       />
 
@@ -1414,7 +1541,7 @@ export default function Hero() {
                     <LandingDustText
                       delay={780}
                       shouldAnimate={shouldPlayLandingIntro}
-                      text={landingCopy}
+                      text={landingDisplayCopy}
                       variant="soft"
                     />
                   </span>
@@ -1423,7 +1550,7 @@ export default function Hero() {
                       decorative
                       delay={780}
                       shouldAnimate={shouldPlayLandingIntro}
-                      text={landingCopy}
+                      text={landingDisplayCopy}
                       variant="soft"
                     />
                   </span>
@@ -1527,7 +1654,7 @@ export default function Hero() {
               </div>
             </section>
 
-            <section ref={philosophySectionRef} className="w-full px-6 py-12 text-left sm:py-16">
+            <section ref={philosophySectionRef} className="w-full px-6 pb-8 pt-12 text-left sm:pb-10 sm:pt-16">
               <div
                 ref={philosophyCardRef}
                 className="qraft-scroll-rise mx-auto w-full max-w-6xl border border-[#d9ad73]/25 bg-[#120b07]/70 p-6 shadow-[0_24px_80px_rgba(13,8,5,0.48)] backdrop-blur-xl sm:p-8"
@@ -1542,7 +1669,6 @@ export default function Hero() {
                       {ownershipQuestionLines.map((line, index) => (
                         <span
                           key={line}
-                          ref={index === 1 ? ownershipChangeLineRef : undefined}
                           className={`qraft-ownership-line ${
                             index === 0 ? "qraft-ownership-line-own" : "qraft-ownership-line-change"
                           }`}
@@ -1574,42 +1700,50 @@ export default function Hero() {
 
             <section
               ref={section3Ref}
-              className="flex w-full items-center px-6 pb-10 pt-16 text-left sm:min-h-[86vh] sm:pb-16 sm:pt-24"
+              className="flex w-full items-center px-6 pb-10 pt-16 text-left sm:min-h-[68vh] sm:pb-16 sm:pt-24"
             >
-              <div
-                className={`qraft-top-reveal mx-auto w-full max-w-6xl ${
-                  section3Visible ? "qraft-top-reveal-visible" : ""
-                }`}
-              >
-                <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.2em] text-[#d2ad7c]/55">
-                  03 / Process
-                </p>
-                <div className="mt-6 h-px w-full bg-[#d9ad73]/16" />
-                <h2 className="mt-8 text-2xl font-medium leading-tight text-[#f5dfbd]/82 sm:text-4xl">
-                  사유의 3단계
-                </h2>
+              <div className="qraft-top-reveal mx-auto w-full max-w-6xl">
+                <div className="qraft-process-header">
+                  <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.2em] text-[#d2ad7c]/55">
+                    03 / Process
+                  </p>
+                  <div className="mt-6 h-px w-full bg-[#d9ad73]/16" />
+                  <h2 className="mt-8 text-2xl font-medium leading-tight text-[#f5dfbd]/82 sm:text-4xl">
+                    사유의 3단계
+                  </h2>
+                </div>
 
                 <div className="qraft-phase-grid mt-10 grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-3">
-                  {phaseCards.map((phase) => (
-                    <article
+                  {phaseCards.map((phase, index) => (
+                    <div
                       key={phase.phase}
-                      className={`qraft-phase-card group min-h-64 px-6 py-6 transition-colors duration-500 sm:min-h-72 sm:px-8 sm:py-8 ${phase.tone}`}
+                      className="qraft-process-step"
+                      style={
+                        {
+                          "--process-step-progress": `var(--process-card-${index + 1}-progress, 0)`,
+                          "--process-step-y": `var(--process-card-${index + 1}-y, 54px)`,
+                        } as CSSProperties
+                      }
                     >
-                      <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em] text-[#d2ad7c]/55">
-                        {phase.phase}
-                      </p>
-                      <div className="mt-6">
-                        <h3 className="text-2xl font-medium leading-tight text-[#f5dfbd]/82 sm:text-3xl">
-                          {phase.title}
-                        </h3>
-                        <p className="mt-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#d2ad7c]/46">
-                          {phase.label}
+                      <article
+                        className={`qraft-phase-card group min-h-64 px-6 py-6 transition-colors duration-500 sm:min-h-72 sm:px-8 sm:py-8 ${phase.tone}`}
+                      >
+                        <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em] text-[#d2ad7c]/55">
+                          {phase.phase}
                         </p>
-                      </div>
-                      <p className="qraft-phase-copy mt-8 text-sm font-medium leading-[1.82] [word-break:keep-all] sm:text-[15px]">
-                        {phase.copy}
-                      </p>
-                    </article>
+                        <div className="mt-6">
+                          <h3 className="text-2xl font-medium leading-tight text-[#f5dfbd]/82 sm:text-3xl">
+                            {phase.title}
+                          </h3>
+                          <p className="mt-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#d2ad7c]/46">
+                            {phase.label}
+                          </p>
+                        </div>
+                        <p className="qraft-phase-copy mt-8 text-sm font-medium leading-[1.82] [word-break:keep-all] sm:text-[15px]">
+                          {phase.copy}
+                        </p>
+                      </article>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -1617,14 +1751,14 @@ export default function Hero() {
 
             <section
               ref={silentSectionRef}
-              className="qraft-silent-section relative flex w-full items-center overflow-hidden px-6 pb-28 pt-14 text-left sm:min-h-[92vh] sm:pb-36 sm:pt-20"
+              className="qraft-silent-section relative flex w-full items-center overflow-hidden px-6 pb-14 pt-14 text-left sm:min-h-[82vh] sm:pb-16 sm:pt-20"
             >
               <div className="relative mx-auto w-full max-w-4xl">
                 <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em] text-[#cbd8cf]/45">
                   04 / Silent Record
                 </p>
                 <h2 className="mt-4 text-lg font-medium leading-tight text-[#dfe9df]/58 sm:text-2xl">
-                  보이지 않는 관찰자
+                  타인의 고찰
                 </h2>
                 <blockquote
                   className={`qraft-scroll-rise qraft-silent-quote mt-9 max-w-3xl text-xl font-medium leading-[1.55] tracking-normal [word-break:keep-all] sm:text-2xl sm:leading-[1.5] ${
@@ -1657,7 +1791,7 @@ export default function Hero() {
               </div>
             </section>
 
-            <section className="w-full px-6 pb-24 pt-0 sm:pb-32">
+            <section className="w-full px-6 pb-20 pt-0 sm:pb-24">
               <div className="mx-auto flex w-full max-w-4xl justify-center">
                 <button
                   type="button"
@@ -1693,8 +1827,8 @@ export default function Hero() {
               ))}
             </div>
 
-            <p className="mt-7 text-sm font-medium leading-[1.7] text-[#f5dfbd]/75 transition-opacity duration-700 sm:text-base">
-              {loadingMessages[loadingStep]}
+            <p className="mt-7 max-w-md text-center text-sm font-medium leading-[1.7] text-[#f5dfbd]/75 transition-opacity duration-700 [word-break:keep-all] sm:text-base">
+              {loadingNotice || loadingMessages[loadingStep]}
             </p>
           </div>
         )}

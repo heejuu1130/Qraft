@@ -217,17 +217,22 @@ body {
 }
 
 .qraft-top-reveal {
-  opacity: 0;
-  transform: translateY(72px);
-  transition:
-    opacity 900ms cubic-bezier(0.19, 1, 0.22, 1),
-    transform 900ms cubic-bezier(0.19, 1, 0.22, 1);
+  opacity: 1;
+}
+
+.qraft-process-header,
+.qraft-process-step {
   will-change: opacity, transform;
 }
 
-.qraft-top-reveal-visible {
-  opacity: 1;
-  transform: translateY(0);
+.qraft-process-header {
+  opacity: var(--process-header-progress, 0);
+  transform: translateY(var(--process-header-y, 54px));
+}
+
+.qraft-process-step {
+  opacity: var(--process-step-progress, 0);
+  transform: translateY(var(--process-step-y, 54px));
 }
 
 .qraft-silent-section {

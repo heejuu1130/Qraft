@@ -1040,6 +1040,7 @@ export async function POST(request: Request) {
   let summary = FALLBACK_SUMMARY
   let questions: string[] = FALLBACK_QUESTIONS
   let reflections: string[] = FALLBACK_REFLECTIONS
+  let hasCompleteModelPayload = false
 
   try {
     const jsonMatch = raw.match(/\{[\s\S]*\}/) ?? raw.match(/\[[\s\S]*\]/)
@@ -1078,8 +1079,28 @@ export async function POST(request: Request) {
       ) {
         reflections = payload.reflections
       }
+
+      hasCompleteModelPayload =
+        typeof payload.summary === "string" &&
+        payload.summary.trim().length > 0 &&
+        Array.isArray(payload.questions) &&
+        payload.questions.length > 0 &&
+        payload.questions.every((q) => typeof q === "string") &&
+        Array.isArray(payload.reflections) &&
+        payload.reflections.length > 0 &&
+        payload.reflections.every((reflection) => typeof reflection === "string")
     }
   } catch {}
+
+  if (forceTopicWebSearch && !hasCompleteModelPayload) {
+    console.error("Qraft grounded topic response was incomplete", {
+      reason: topicGroundingDecision?.reason,
+      source,
+      raw: raw.slice(0, 500),
+    })
+
+    return Response.json(buildUngroundedTopicFallback(source))
+  }
 
   questions = normalizeList(questions, FALLBACK_QUESTIONS)
   reflections = normalizeReflections(reflections, FALLBACK_REFLECTIONS)

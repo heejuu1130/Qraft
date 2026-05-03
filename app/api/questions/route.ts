@@ -4,6 +4,7 @@ import { createRouteClient } from "@/lib/supabase/route"
 const client = new Anthropic({ timeout: 30000 })
 const contentCharacterLimit = 8000
 const jinaReaderTimeoutMs = 8000
+const jinaSearchTimeoutMs = 6000
 const youtubeReaderTimeoutMs = 5000
 const youtubeMetadataTimeoutMs = 5000
 const generationMaxTokens = 1600
@@ -74,7 +75,9 @@ const SYSTEM_PROMPT = [
   2. 변화: 한 문장
   3. 생각할 점: 한 문장
 - 링크/긴 텍스트는 핵심 주장과 맥락을, 짧은 주제는 바라볼 관점을 요약합니다.
+- 짧은 주제에 참고 내용이 제공된 경우, 반드시 그 검색 결과에서 확인되는 실제 정보와 맥락을 기반으로 요약과 질문을 만듭니다.
 - 사용자 입력 원문에 있는 주제어를 잃지 말고, 참고 내용이 검색 결과일 때는 검색 결과의 잡음이나 광고성 문구를 핵심으로 삼지 않습니다.
+- 검색 결과 중 사용자 원문과 직접 관련이 낮은 결과는 사용하지 않습니다. 결과 여러 개가 서로 다르면 공통으로 확인되는 내용과 가장 직접적인 결과를 우선합니다.
 - 링크 본문이나 검색 결과가 부족하면 모르는 사실을 꾸며내지 말고, 입력된 단어에서 직접 출발한 관점 중심 요약과 질문을 만듭니다.
 - 유튜브 링크에서 영상 제목이나 채널 정보만 확보된 경우, 제목에서 드러나는 주제와 관점으로 요약과 질문을 만들되 "영상을 확인할 수 없습니다", "내용을 요약하기 어렵습니다", "일반적 맥락" 같은 한계 설명을 출력하지 않습니다.
 - 유튜브 제목이나 채널 정보만 확보된 경우, 제목에 없는 작품 배경, 악기, 제작 의도, 인물 관계, 사건을 사실처럼 추가 추정하지 않습니다.
@@ -115,6 +118,8 @@ type QuestionRequest = {
 
 const LINK_PARSE_FAILURE_MESSAGE =
   "링크의 내용을 파악하는 데 실패했습니다. 다시 시도하거나 키워드로 시작해 보시겠어요?"
+const TOPIC_SEARCH_FAILURE_MESSAGE =
+  "주제에 대한 실제 정보를 충분히 찾지 못했습니다. 조금 더 구체적인 키워드로 다시 시도해 주세요."
 const TOKEN_EXHAUSTED_CODE = "TOKEN_EXHAUSTED"
 const TOKEN_EXHAUSTED_MESSAGE =
   "토큰이 다 떨어져서 질문을 생성할 수 없습니다. 금방 관리자의 사비를 들여 채워보도록하겠습니다.."
@@ -276,6 +281,28 @@ async function fetchViaJina(url: string, timeoutMs = jinaReaderTimeoutMs): Promi
 
   if (!response.ok) {
     throw new Error(`Jina 요청 실패: ${response.status}`)
+  }
+
+  const text = await response.text()
+  return text.slice(0, contentCharacterLimit)
+}
+
+async function fetchSearchGrounding(query: string): Promise<string> {
+  const headers: HeadersInit = {
+    Accept: "text/plain",
+  }
+
+  if (process.env.JINA_API_KEY) {
+    headers.Authorization = `Bearer ${process.env.JINA_API_KEY}`
+  }
+
+  const response = await fetch(`https://s.jina.ai/?q=${encodeURIComponent(query)}`, {
+    headers,
+    signal: AbortSignal.timeout(jinaSearchTimeoutMs),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Jina 검색 요청 실패: ${response.status}`)
   }
 
   const text = await response.text()
@@ -504,14 +531,14 @@ function buildModelInput({
   const usableContent = content.trim().slice(0, contentCharacterLimit)
   const contentGuide =
     sourceKind === "topic"
-      ? "참고 내용: 짧은 주제입니다. 사용자 원문 자체를 사유 대상으로 삼고, 검증되지 않은 사실을 덧붙이지 마세요."
+      ? "참고 내용: 검색 결과를 확보하지 못했습니다. 검증되지 않은 사실을 덧붙이지 마세요."
       : "참고 내용: 충분히 확보되지 않았습니다. 사용자 원문에서 확인할 수 있는 범위를 넘어서 단정하지 마세요."
 
   return [
     `입력 유형: ${sourceLabel}`,
     `사용자 원문:\n${source}`,
     resolved && usableContent && usableContent !== source
-      ? `참고 내용:\n${usableContent}`
+      ? `${sourceKind === "topic" ? "검색 기반 참고 내용" : "참고 내용"}:\n${usableContent}`
       : contentGuide,
   ].join("\n\n")
 }
@@ -540,6 +567,17 @@ function linkParseFailureResponse() {
     {
       message: LINK_PARSE_FAILURE_MESSAGE,
       code: "LINK_PARSE_FAILED",
+      retryable: true,
+    },
+    { status: 422 }
+  )
+}
+
+function topicSearchFailureResponse() {
+  return Response.json(
+    {
+      message: TOPIC_SEARCH_FAILURE_MESSAGE,
+      code: "TOPIC_SEARCH_FAILED",
       retryable: true,
     },
     { status: 422 }
@@ -805,14 +843,23 @@ export async function POST(request: Request) {
       contentResolved = false
     }
   } else if (sourceKind === "topic") {
-    content = source
-    contentResolved = false
+    try {
+      content = await fetchSearchGrounding(source)
+      contentResolved = Boolean(content.trim())
+    } catch {
+      content = source
+      contentResolved = false
+    }
   } else {
     content = source
   }
 
   if ((sourceKind === "url" || sourceKind === "youtube") && !contentResolved) {
     return linkParseFailureResponse()
+  }
+
+  if (sourceKind === "topic" && !contentResolved) {
+    return topicSearchFailureResponse()
   }
 
   const modelInput = buildModelInput({

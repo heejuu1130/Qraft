@@ -17,17 +17,18 @@ const factualTopicKeywords = [
   "ceo",
   "gpt",
   "가격",
+  "게임",
   "가수",
   "감독",
   "교수",
-  "국가",
   "기업",
+  "근황",
+  "뉴스",
   "논문",
+  "논란",
   "대통령",
   "대학교",
-  "도시",
   "드라마",
-  "문제",
   "배우",
   "브랜드",
   "사건",
@@ -37,38 +38,65 @@ const factualTopicKeywords = [
   "소설",
   "스타트업",
   "시리즈",
+  "앨범",
   "영화",
   "올해",
+  "웹툰",
+  "유튜버",
   "인물",
   "작가",
   "작품",
   "전쟁",
+  "전시",
+  "저자",
   "정책",
   "제품",
   "최근",
   "출시",
   "팀",
+  "후보",
   "회사",
 ]
 
 const abstractTopicKeywords = [
   "감정",
   "고독",
+  "공감",
+  "공동체",
   "공간",
   "관계",
   "기억",
+  "기술",
   "도파민",
   "데이터",
+  "문화",
+  "민주주의",
+  "분노",
+  "불안",
   "사랑",
   "상실",
+  "소비",
   "실존",
   "알고리즘",
+  "언어",
+  "예술",
+  "욕망",
+  "우울",
+  "윤리",
   "인간성",
   "자아",
+  "자본주의",
+  "자유",
+  "정의",
+  "정체성",
   "주체성",
   "존재",
+  "죽음",
   "침묵",
+  "취향",
   "편집",
+  "피로",
+  "행복",
 ]
 
 const PERSONA = `Qraft의 브랜드 톤:
@@ -499,6 +527,20 @@ function normalizeReflections(items: string[], fallback: string[]) {
 }
 
 type SourceKind = "url" | "youtube" | "topic" | "text"
+type TopicGroundingReason =
+  | "empty"
+  | "numbers_or_dates"
+  | "latin_entity"
+  | "factual_keyword"
+  | "short_or_single_name"
+  | "spaced_name_or_title"
+  | "abstract_concept"
+  | "concept"
+
+type TopicGroundingDecision = {
+  reason: TopicGroundingReason
+  useWebSearch: boolean
+}
 
 function getSourceKind(source: string): SourceKind {
   if (isYouTubeUrl(source)) return "youtube"
@@ -506,24 +548,28 @@ function getSourceKind(source: string): SourceKind {
   return source.length < 100 ? "topic" : "text"
 }
 
-function shouldGroundTopic(source: string) {
+// Keep this deterministic. A model-based classifier would add another slow call before generation.
+function getTopicGroundingDecision(source: string): TopicGroundingDecision {
   const value = source.trim().toLowerCase()
   const hasAbstractSignal = abstractTopicKeywords.some((keyword) => value.includes(keyword))
   const hasSpecificLatinName = /[a-z]{3,}/.test(value)
   const hasFactualKeyword = factualTopicKeywords.some((keyword) => value.includes(keyword))
-  const hasLikelyHangulName = /^[가-힣]{2,4}$/.test(value)
+  const hasLikelyHangulName = /^[가-힣]{2,6}$/.test(value) && !hasAbstractSignal
   const hasLikelySpacedName =
     /^[가-힣a-z\s·.-]{3,40}$/.test(value) &&
     value.split(/\s+/).filter(Boolean).length >= 2 &&
     !hasAbstractSignal &&
-    !/[와과의을를이가은는에서으로하다되다적인]$/.test(value)
+    !/(?:와|과|의|을|를|이|가|은|는|에서|으로|하다|되다|적인)$/.test(value)
 
-  if (!value) return false
-  if (/\d/.test(value)) return true
-  if (hasSpecificLatinName || hasFactualKeyword || hasLikelyHangulName || hasLikelySpacedName) return true
-  if (hasAbstractSignal) return false
+  if (!value) return { reason: "empty", useWebSearch: false }
+  if (/\d/.test(value)) return { reason: "numbers_or_dates", useWebSearch: true }
+  if (hasSpecificLatinName) return { reason: "latin_entity", useWebSearch: true }
+  if (hasFactualKeyword) return { reason: "factual_keyword", useWebSearch: true }
+  if (hasLikelyHangulName) return { reason: "short_or_single_name", useWebSearch: true }
+  if (hasLikelySpacedName) return { reason: "spaced_name_or_title", useWebSearch: true }
+  if (hasAbstractSignal) return { reason: "abstract_concept", useWebSearch: false }
 
-  return false
+  return { reason: "concept", useWebSearch: false }
 }
 
 function normalizeQuestionFingerprint(question: string) {
@@ -909,7 +955,9 @@ export async function POST(request: Request) {
   let content: string
   let contentResolved = true
   const sourceKind = getSourceKind(source)
-  const forceTopicWebSearch = sourceKind === "topic" && shouldGroundTopic(source)
+  const topicGroundingDecision =
+    sourceKind === "topic" ? getTopicGroundingDecision(source) : null
+  const forceTopicWebSearch = topicGroundingDecision?.useWebSearch ?? false
 
   if (sourceKind === "youtube") {
     const [readerResult, metadataResult] = await Promise.allSettled([

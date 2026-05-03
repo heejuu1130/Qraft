@@ -1006,7 +1006,34 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
   const compactValue = value.replace(/\s+/g, "")
   const words = value.split(/\s+/).filter(Boolean)
   const firstWord = words[0] ?? ""
-  const conceptLeadWords = ["개인", "나쁜", "나의", "사회", "어떤", "우리", "인간", "좋은", "현대"]
+  const conceptLeadWords = [
+    "개념적",
+    "개인",
+    "개인적",
+    "공적",
+    "기술적",
+    "나쁜",
+    "나의",
+    "디지털",
+    "문화적",
+    "물리적",
+    "사적",
+    "사회",
+    "사회적",
+    "심리적",
+    "어떤",
+    "온라인",
+    "오프라인",
+    "우리",
+    "윤리적",
+    "인간",
+    "정서적",
+    "정치적",
+    "좋은",
+    "철학적",
+    "현대",
+    "현대적",
+  ]
   const hasAbstractSignal = abstractTopicKeywords.some((keyword) => value.includes(keyword))
   const hasFactualKeyword = factualTopicKeywords.some((keyword) => value.includes(keyword))
   const hasExternalReferenceKeyword = externalReferenceKeywords.some((keyword) => value.includes(keyword))
@@ -1027,7 +1054,7 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
     /^[가-힣]{2,6}$/.test(firstWord) &&
     !abstractTopicKeywords.includes(firstWord) &&
     !conceptLeadWords.includes(firstWord) &&
-    !/(?:은|는|한|적인|로운)$/.test(firstWord) &&
+    !/(?:은|는|한|적|적인|로운)$/.test(firstWord) &&
     hasAbstractSignal
   const semanticDecision = getSemanticRouterDecision(value)
   const hasLikelyHangulName = /^[가-힣]{2,6}$/.test(value) && !hasAbstractSignal

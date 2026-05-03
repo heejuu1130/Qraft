@@ -416,6 +416,23 @@ type TokenAlertPayload = {
   error: unknown
 }
 
+type QuestionGenerationEventPayload = {
+  errorCode?: string | null
+  factGroundingStatus?: string | null
+  factProvider?: string | null
+  generationSuccess: boolean
+  latencyMs: number
+  mode: "generate" | "regenerate"
+  previousQuestionCount: number
+  questionCount?: number | null
+  reflectionCount?: number | null
+  request: Request
+  sourceKind: SourceKind | "summary"
+  sourceText?: string | null
+  topicGroundingDecision?: TopicGroundingDecision | null
+  useWebSearch?: boolean | null
+}
+
 type QuestionRateLimitEntry = {
   count: number
   resetAt: number
@@ -831,6 +848,8 @@ type TopicGroundingReason =
 
 type TopicGroundingDecision = {
   reason: TopicGroundingReason
+  semanticScoreAbstract: number | null
+  semanticScoreFactual: number | null
   useWebSearch: boolean
 }
 
@@ -906,13 +925,13 @@ function getSemanticRouterDecision(input: string) {
   const abstractScore = getRouterPrototypeScore(input, abstractRouterPrototypes)
 
   if (abstractScore >= 0.34 && abstractScore >= factualScore + 0.07) {
-    return { kind: "abstract" as const, score: abstractScore }
+    return { kind: "abstract" as const, score: abstractScore, factualScore, abstractScore }
   }
   if (factualScore >= 0.38 && factualScore >= abstractScore + 0.09) {
-    return { kind: "factual" as const, score: factualScore }
+    return { kind: "factual" as const, score: factualScore, factualScore, abstractScore }
   }
 
-  return null
+  return { kind: null, score: Math.max(factualScore, abstractScore), factualScore, abstractScore }
 }
 
 // Keep this deterministic. A model-based classifier would add another slow call before generation.
@@ -953,28 +972,35 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
     !hasAbstractSignal &&
     !hasAbstractLatinSignal &&
     !/(?:와|과|의|을|를|이|가|은|는|에서|으로|하다|되다|적인)$/.test(value)
+  const withSemanticScores = (
+    decision: Pick<TopicGroundingDecision, "reason" | "useWebSearch">
+  ): TopicGroundingDecision => ({
+    ...decision,
+    semanticScoreAbstract: Number(semanticDecision.abstractScore.toFixed(4)),
+    semanticScoreFactual: Number(semanticDecision.factualScore.toFixed(4)),
+  })
 
-  if (!value) return { reason: "empty", useWebSearch: false }
-  if (hasTemporalOrNumericSignal) return { reason: "numbers_or_dates", useWebSearch: true }
-  if (hasExternalReferenceKeyword) return { reason: "external_reference", useWebSearch: true }
-  if (hasNamedWorkMarker) return { reason: "named_work_marker", useWebSearch: true }
-  if (hasMixedEntitySignal) return { reason: "mixed_entity_signal", useWebSearch: true }
-  if (hasSpecificLatinName) return { reason: "latin_entity", useWebSearch: true }
-  if (hasEntityWithConcept) return { reason: "spaced_name_or_title", useWebSearch: true }
-  if (semanticDecision?.kind === "abstract") {
-    return { reason: "semantic_abstract_prototype", useWebSearch: false }
+  if (!value) return withSemanticScores({ reason: "empty", useWebSearch: false })
+  if (hasTemporalOrNumericSignal) return withSemanticScores({ reason: "numbers_or_dates", useWebSearch: true })
+  if (hasExternalReferenceKeyword) return withSemanticScores({ reason: "external_reference", useWebSearch: true })
+  if (hasNamedWorkMarker) return withSemanticScores({ reason: "named_work_marker", useWebSearch: true })
+  if (hasMixedEntitySignal) return withSemanticScores({ reason: "mixed_entity_signal", useWebSearch: true })
+  if (hasSpecificLatinName) return withSemanticScores({ reason: "latin_entity", useWebSearch: true })
+  if (hasEntityWithConcept) return withSemanticScores({ reason: "spaced_name_or_title", useWebSearch: true })
+  if (semanticDecision.kind === "abstract") {
+    return withSemanticScores({ reason: "semantic_abstract_prototype", useWebSearch: false })
   }
-  if (semanticDecision?.kind === "factual") {
-    return { reason: "semantic_factual_prototype", useWebSearch: true }
+  if (semanticDecision.kind === "factual") {
+    return withSemanticScores({ reason: "semantic_factual_prototype", useWebSearch: true })
   }
-  if (hasAbstractSignal && hasFactualKeyword) return { reason: "abstract_concept", useWebSearch: false }
-  if (hasFactualKeyword) return { reason: "factual_keyword", useWebSearch: true }
-  if (hasLikelyHangulName) return { reason: "short_or_single_name", useWebSearch: true }
-  if (hasLikelySpacedName) return { reason: "spaced_name_or_title", useWebSearch: true }
-  if (hasAbstractLatinSignal) return { reason: "abstract_latin_concept", useWebSearch: false }
-  if (hasAbstractSignal) return { reason: "abstract_concept", useWebSearch: false }
+  if (hasAbstractSignal && hasFactualKeyword) return withSemanticScores({ reason: "abstract_concept", useWebSearch: false })
+  if (hasFactualKeyword) return withSemanticScores({ reason: "factual_keyword", useWebSearch: true })
+  if (hasLikelyHangulName) return withSemanticScores({ reason: "short_or_single_name", useWebSearch: true })
+  if (hasLikelySpacedName) return withSemanticScores({ reason: "spaced_name_or_title", useWebSearch: true })
+  if (hasAbstractLatinSignal) return withSemanticScores({ reason: "abstract_latin_concept", useWebSearch: false })
+  if (hasAbstractSignal) return withSemanticScores({ reason: "abstract_concept", useWebSearch: false })
 
-  return { reason: "concept", useWebSearch: false }
+  return withSemanticScores({ reason: "concept", useWebSearch: false })
 }
 
 function normalizeQuestionFingerprint(question: string) {
@@ -1425,6 +1451,67 @@ async function notifyTokenExhausted({ mode, sourceKind, request, error }: TokenA
   }
 }
 
+function getQuestionGenerationEventSourceText(sourceText?: string | null) {
+  const trimmed = sourceText?.trim() ?? ""
+
+  return trimmed ? trimmed.slice(0, 2000) : null
+}
+
+async function recordQuestionGenerationEvent({
+  errorCode = null,
+  factGroundingStatus = null,
+  factProvider = null,
+  generationSuccess,
+  latencyMs,
+  mode,
+  previousQuestionCount,
+  questionCount = null,
+  reflectionCount = null,
+  request,
+  sourceKind,
+  sourceText = null,
+  topicGroundingDecision = null,
+  useWebSearch = null,
+}: QuestionGenerationEventPayload) {
+  const normalizedSourceText = getQuestionGenerationEventSourceText(sourceText)
+  const path = new URL(request.url).pathname
+  const userAgent = request.headers.get("user-agent")?.slice(0, 500) ?? null
+
+  try {
+    const { supabase } = await createRouteClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    const { error } = await supabase.from("question_generation_events").insert({
+      user_id: user?.id ?? null,
+      mode,
+      source_text: normalizedSourceText,
+      source_length: sourceText?.trim().length ?? 0,
+      source_kind: sourceKind,
+      router_reason: topicGroundingDecision?.reason ?? null,
+      use_web_search: useWebSearch,
+      semantic_score_factual: topicGroundingDecision?.semanticScoreFactual ?? null,
+      semantic_score_abstract: topicGroundingDecision?.semanticScoreAbstract ?? null,
+      fact_provider: factProvider,
+      fact_grounding_status: factGroundingStatus,
+      generation_success: generationSuccess,
+      latency_ms: Math.max(0, Math.round(latencyMs)),
+      error_code: errorCode,
+      question_count: questionCount,
+      reflection_count: reflectionCount,
+      previous_question_count: previousQuestionCount,
+      page_path: path,
+      user_agent: userAgent,
+    })
+
+    if (error) {
+      console.error("Qraft question generation event insert failed", error)
+    }
+  } catch (eventError) {
+    console.error("Qraft question generation event insert failed", eventError)
+  }
+}
+
 export async function POST(request: Request) {
   let body: QuestionRequest
 
@@ -1448,6 +1535,8 @@ export async function POST(request: Request) {
     return Response.json({ message: "Source is required" }, { status: 400 })
   }
 
+  const requestStartedAt = Date.now()
+  const getLatencyMs = () => Date.now() - requestStartedAt
   const rateLimit = checkQuestionRateLimit(request)
 
   if (!rateLimit.allowed) {
@@ -1473,8 +1562,31 @@ export async function POST(request: Request) {
       console.error(error)
       if (isTokenExhaustedError(error)) {
         await notifyTokenExhausted({ mode: "regenerate", sourceKind: "summary", request, error })
+        await recordQuestionGenerationEvent({
+          mode: "regenerate",
+          sourceKind: "summary",
+          sourceText: existingSummary,
+          generationSuccess: false,
+          latencyMs: getLatencyMs(),
+          errorCode: TOKEN_EXHAUSTED_CODE,
+          previousQuestionCount: previousQuestions.length,
+          request,
+        })
         return tokenExhaustedResponse()
       }
+
+      await recordQuestionGenerationEvent({
+        mode: "regenerate",
+        sourceKind: "summary",
+        sourceText: existingSummary,
+        generationSuccess: false,
+        latencyMs: getLatencyMs(),
+        errorCode: "regenerate_model_error",
+        questionCount: FALLBACK_QUESTIONS.length,
+        reflectionCount: FALLBACK_REFLECTIONS.length,
+        previousQuestionCount: previousQuestions.length,
+        request,
+      })
 
       return Response.json({ questions: FALLBACK_QUESTIONS, reflections: FALLBACK_REFLECTIONS })
     }
@@ -1541,6 +1653,18 @@ export async function POST(request: Request) {
       }
     }
 
+    await recordQuestionGenerationEvent({
+      mode: "regenerate",
+      sourceKind: "summary",
+      sourceText: existingSummary,
+      generationSuccess: true,
+      latencyMs: getLatencyMs(),
+      questionCount: questions.length,
+      reflectionCount: reflections.length,
+      previousQuestionCount: previousQuestions.length,
+      request,
+    })
+
     return Response.json({
       questions,
       reflections,
@@ -1554,6 +1678,8 @@ export async function POST(request: Request) {
   const topicGroundingDecision =
     sourceKind === "topic" ? getTopicGroundingDecision(source) : null
   const forceTopicWebSearch = topicGroundingDecision?.useWebSearch ?? false
+  let factProvider: FactBrief["provider"] | null = null
+  let factGroundingStatus: FactBrief["groundingStatus"] | null = null
 
   if (sourceKind === "youtube") {
     const [readerResult, metadataResult] = await Promise.allSettled([
@@ -1580,6 +1706,18 @@ export async function POST(request: Request) {
   }
 
   if ((sourceKind === "url" || sourceKind === "youtube") && !contentResolved) {
+    await recordQuestionGenerationEvent({
+      mode: "generate",
+      sourceKind,
+      sourceText: source,
+      topicGroundingDecision,
+      useWebSearch: forceTopicWebSearch,
+      generationSuccess: false,
+      latencyMs: getLatencyMs(),
+      errorCode: "link_parse_failed",
+      previousQuestionCount: previousQuestions.length,
+      request,
+    })
     return linkParseFailureResponse()
   }
 
@@ -1601,6 +1739,18 @@ export async function POST(request: Request) {
           request,
           error: factBriefResult.reason,
         })
+        await recordQuestionGenerationEvent({
+          mode: "generate",
+          sourceKind,
+          sourceText: source,
+          topicGroundingDecision,
+          useWebSearch: forceTopicWebSearch,
+          generationSuccess: false,
+          latencyMs: getLatencyMs(),
+          errorCode: TOKEN_EXHAUSTED_CODE,
+          previousQuestionCount: previousQuestions.length,
+          request,
+        })
         return tokenExhaustedResponse()
       }
     }
@@ -1615,6 +1765,18 @@ export async function POST(request: Request) {
           request,
           error: skeletonResult.reason,
         })
+        await recordQuestionGenerationEvent({
+          mode: "generate",
+          sourceKind,
+          sourceText: source,
+          topicGroundingDecision,
+          useWebSearch: forceTopicWebSearch,
+          generationSuccess: false,
+          latencyMs: getLatencyMs(),
+          errorCode: TOKEN_EXHAUSTED_CODE,
+          previousQuestionCount: previousQuestions.length,
+          request,
+        })
         return tokenExhaustedResponse()
       }
     }
@@ -1623,8 +1785,23 @@ export async function POST(request: Request) {
     const skeleton = skeletonResult.status === "fulfilled" ? skeletonResult.value : null
 
     if (!factBrief) {
+      await recordQuestionGenerationEvent({
+        mode: "generate",
+        sourceKind,
+        sourceText: source,
+        topicGroundingDecision,
+        useWebSearch: forceTopicWebSearch,
+        generationSuccess: false,
+        latencyMs: getLatencyMs(),
+        errorCode: "fact_brief_unavailable",
+        previousQuestionCount: previousQuestions.length,
+        request,
+      })
       return Response.json(buildUngroundedTopicFallback(source))
     }
+
+    factProvider = factBrief.provider
+    factGroundingStatus = factBrief.groundingStatus
 
     modelInput = buildGroundedTopicModelInput({
       source,
@@ -1657,12 +1834,57 @@ export async function POST(request: Request) {
     console.error(error)
     if (isTokenExhaustedError(error)) {
       await notifyTokenExhausted({ mode: "generate", sourceKind, request, error })
+      await recordQuestionGenerationEvent({
+        mode: "generate",
+        sourceKind,
+        sourceText: source,
+        topicGroundingDecision,
+        useWebSearch: forceTopicWebSearch,
+        factProvider,
+        factGroundingStatus,
+        generationSuccess: false,
+        latencyMs: getLatencyMs(),
+        errorCode: TOKEN_EXHAUSTED_CODE,
+        previousQuestionCount: previousQuestions.length,
+        request,
+      })
       return tokenExhaustedResponse()
     }
 
     if (sourceKind === "topic") {
+      await recordQuestionGenerationEvent({
+        mode: "generate",
+        sourceKind,
+        sourceText: source,
+        topicGroundingDecision,
+        useWebSearch: forceTopicWebSearch,
+        factProvider,
+        factGroundingStatus,
+        generationSuccess: false,
+        latencyMs: getLatencyMs(),
+        errorCode: "generate_model_error",
+        previousQuestionCount: previousQuestions.length,
+        request,
+      })
       return Response.json(buildUngroundedTopicFallback(source))
     }
+
+    await recordQuestionGenerationEvent({
+      mode: "generate",
+      sourceKind,
+      sourceText: source,
+      topicGroundingDecision,
+      useWebSearch: forceTopicWebSearch,
+      factProvider,
+      factGroundingStatus,
+      generationSuccess: false,
+      latencyMs: getLatencyMs(),
+      errorCode: "generate_model_error",
+      questionCount: FALLBACK_QUESTIONS.length,
+      reflectionCount: FALLBACK_REFLECTIONS.length,
+      previousQuestionCount: previousQuestions.length,
+      request,
+    })
 
     return Response.json({
       summary: FALLBACK_SUMMARY,
@@ -1733,12 +1955,43 @@ export async function POST(request: Request) {
       raw: raw.slice(0, 500),
     })
 
+    await recordQuestionGenerationEvent({
+      mode: "generate",
+      sourceKind,
+      sourceText: source,
+      topicGroundingDecision,
+      useWebSearch: forceTopicWebSearch,
+      factProvider,
+      factGroundingStatus,
+      generationSuccess: false,
+      latencyMs: getLatencyMs(),
+      errorCode: "grounded_response_incomplete",
+      previousQuestionCount: previousQuestions.length,
+      request,
+    })
+
     return Response.json(buildUngroundedTopicFallback(source))
   }
 
   questions = normalizeList(questions, FALLBACK_QUESTIONS)
   reflections = normalizeReflections(reflections, FALLBACK_REFLECTIONS)
   summary = normalizeSummary(removeUnavailableDisclosure(summary))
+
+  await recordQuestionGenerationEvent({
+    mode: "generate",
+    sourceKind,
+    sourceText: source,
+    topicGroundingDecision,
+    useWebSearch: forceTopicWebSearch,
+    factProvider,
+    factGroundingStatus,
+    generationSuccess: true,
+    latencyMs: getLatencyMs(),
+    questionCount: questions.length,
+    reflectionCount: reflections.length,
+    previousQuestionCount: previousQuestions.length,
+    request,
+  })
 
   return Response.json({ summary, questions, reflections })
 }

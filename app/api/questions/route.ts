@@ -3,15 +3,17 @@ import { createHash } from "crypto"
 import { createRouteClient } from "@/lib/supabase/route"
 
 const client = new Anthropic({ timeout: 30000 })
+const sonnetGenerationModel = "claude-sonnet-4-6"
+const fastGenerationModel = "claude-haiku-4-5"
 const contentCharacterLimit = 8000
 const jinaReaderTimeoutMs = 8000
 const youtubeReaderTimeoutMs = 5000
 const youtubeMetadataTimeoutMs = 5000
-const generationMaxTokens = 1450
-const groundedGenerationMaxTokens = 1900
+const generationMaxTokens = 1250
+const groundedGenerationMaxTokens = 1650
 const geminiRouterTimeoutMs = 1800
 const geminiRouterMaxTokens = 160
-const regenerationMaxTokens = 1050
+const regenerationMaxTokens = 950
 const previousQuestionLimit = 8
 const topicWebSearchMaxUses = 1
 const questionRateLimitWindowMs = 60 * 60 * 1000
@@ -21,6 +23,7 @@ const cacheFreshnessTtlMs = 12 * 60 * 60 * 1000
 const cacheFactualTopicTtlMs = 24 * 60 * 60 * 1000
 const cacheTopicTtlMs = 3 * 24 * 60 * 60 * 1000
 const cacheLinkTtlMs = 7 * 24 * 60 * 60 * 1000
+const questionCacheVersion = "v6"
 const factualTopicKeywords = [
   "ceo",
   "앱",
@@ -204,6 +207,20 @@ const abstractLatinTopics = [
   "self",
 ]
 
+const knownStandaloneWorkTitles = [
+  "1984",
+  "노인과 바다",
+  "데미안",
+  "동물농장",
+  "멋진 신세계",
+  "변신",
+  "어린 왕자",
+  "위대한 개츠비",
+  "이방인",
+  "참을 수 없는 존재의 가벼움",
+  "타인의 고통",
+]
+
 const factualRouterPrototypes = [
   "실존 인물의 근황",
   "배우 출연 작품",
@@ -277,9 +294,9 @@ const QUESTION_DESIGN_RULES = `질문 설계:
 const REFLECTION_DESIGN_RULES = `고찰 설계:
 - reflections는 각 질문에 붙는 타인의 고찰 예시입니다.
 - reflections는 정확히 3개이며, 각 항목은 줄바꿈 없는 한 문단으로 씁니다.
-- 각 항목은 보통 2~4개의 짧은 문장 또는 호흡으로 구성합니다.
+- 각 항목은 보통 2~3개의 짧은 문장 또는 호흡으로 구성합니다.
 - 2문장도 허용하지만, 갑자기 끊긴 느낌이 나면 안 됩니다. 전제, 비틀기, 여운이 자연스럽게 닫힐 때만 2문장으로 끝냅니다.
-- 4문장은 생각의 층이 하나 더 필요할 때만 씁니다.
+- 4문장은 거의 쓰지 말고, 생각의 층이 꼭 하나 더 필요할 때만 씁니다.
 - 길이는 지금보다 한 호흡 짧게 씁니다. 선명한 문장 하나가 느슨한 설명 두 문장보다 낫습니다.
 - 문장 중간에서 끊지 말고, JSON 문자열 안에 \\n 줄바꿈을 넣지 않습니다.
 - reflections는 질문에 대한 정답이나 해설이 아니라, 사유하는 사람이 남긴 잠정적 메모처럼 씁니다.
@@ -316,6 +333,9 @@ const SYSTEM_PROMPT = [
 - 사용자 입력 원문에 있는 주제어를 잃지 말고, 참고 내용이 검색 결과일 때는 검색 결과의 잡음이나 광고성 문구를 핵심으로 삼지 않습니다.
 - 검색 결과 중 사용자 원문과 직접 관련이 낮은 결과는 사용하지 않습니다. 결과 여러 개가 서로 다르면 공통으로 확인되는 내용과 가장 직접적인 결과를 우선합니다.
 - 짧은 주제가 web_search나 검색 기반 참고 내용으로 보강된 경우, 실존 인물, 사건, 작품, 브랜드, 단체, 장소, 수치, 시기 같은 사실성 주제는 반드시 확인된 내용만 사용합니다.
+- 실존 인물이나 팀, 작품, 브랜드처럼 사실 확인이 필요한 짧은 주제는 먼저 대상을 식별하고, 소속/직업/작품명/입단·출간·출시처럼 안정적으로 확인되는 사실을 우선합니다.
+- 타율, OPS, 순위, 가격, 팔로워 수처럼 자주 바뀌는 수치나 "전 부문 선두", "최고", "확정" 같은 강한 평가는 사용자가 명시적으로 요구한 경우가 아니면 요약의 핵심으로 삼지 않습니다.
+- 변동 수치가 꼭 필요할 때도 검색 결과 간 차이가 있으면 정확한 숫자 대신 "최근 성적", "검색 시점 기준", "상위권"처럼 보수적으로 표현합니다.
 - 검색 결과로 확인되지 않은 사실은 요약에 쓰지 않습니다. 대신 확인된 범위, 불확실성, 생각해볼 쟁점을 중심으로 작성합니다.
 - 검색 기반 참고 내용이 많은 경우에도 사실을 길게 나열하지 않습니다. 입력어를 이해하는 데 필요한 확인된 사실 2~3개와 그 사실들이 만드는 긴장만 남깁니다.
 - 검색 기반 질문은 미래 예측, 추가 검색, 정답 확인을 요구하지 않습니다. 확인된 사실을 바탕으로 사용자의 관점과 판단 기준을 묻습니다.
@@ -673,6 +693,17 @@ function normalizeSummary(summary: string) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
+    .flatMap((line) => {
+      if (/^\d+\.\s/.test(line) || line.length < 90) return [line]
+
+      const sentences =
+        line
+          .match(/[^.!?。！？]+[.!?。！？]+(?=\s|$)|[^.!?。！？]+$/g)
+          ?.map((sentence) => sentence.trim())
+          .filter(Boolean) ?? []
+
+      return sentences.length > 1 ? sentences : [line]
+    })
     .slice(0, 6)
 
   return (lines.length ? lines.join("\n") : FALLBACK_SUMMARY)
@@ -933,6 +964,7 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
     "개념적",
     "개인",
     "개인적",
+    "ai",
     "공적",
     "기술적",
     "나쁜",
@@ -950,6 +982,7 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
     "우리",
     "윤리적",
     "인간",
+    "인공지능",
     "정서적",
     "정치적",
     "좋은",
@@ -970,6 +1003,13 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
     !hasAbstractLatinSignal &&
     (/[A-Z]{2,}/.test(raw) || /[a-z]+[-_.]?[a-z0-9]+/i.test(raw) || words.length <= 4)
   const hasNamedWorkMarker = /["'“”‘’《》〈〉「」『』]/.test(raw)
+  const hasKnownStandaloneWorkTitle = knownStandaloneWorkTitles.some((title) => compactValue === title.replace(/\s+/g, "").toLowerCase())
+  const hasLikelyStandaloneWorkTitle =
+    words.length >= 3 &&
+    words.length <= 8 &&
+    !conceptLeadWords.includes(firstWord) &&
+    !["의미", "상실", "관계", "감정", "철학", "인간성", "정체성"].some((ending) => value.endsWith(ending)) &&
+    /(?:\b수\b|없는|있는|그리고|에게|으로|처럼|의)/.test(value)
   const hasMixedEntitySignal = /[가-힣][a-z0-9]|[a-z0-9][가-힣]/i.test(value)
   const hasEntityWithConcept =
     words.length >= 2 &&
@@ -999,6 +1039,9 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
   if (hasTemporalOrNumericSignal) return withSemanticScores({ reason: "numbers_or_dates", useWebSearch: true })
   if (hasExternalReferenceKeyword) return withSemanticScores({ reason: "external_reference", useWebSearch: true })
   if (hasNamedWorkMarker) return withSemanticScores({ reason: "named_work_marker", useWebSearch: true })
+  if (hasKnownStandaloneWorkTitle || hasLikelyStandaloneWorkTitle) {
+    return withSemanticScores({ reason: "named_work_marker", useWebSearch: true })
+  }
   if (hasMixedEntitySignal) return withSemanticScores({ reason: "mixed_entity_signal", useWebSearch: true })
   if (hasSpecificLatinName) return withSemanticScores({ reason: "latin_entity", useWebSearch: true })
   if (hasEntityWithConcept) return withSemanticScores({ reason: "spaced_name_or_title", useWebSearch: true })
@@ -1026,11 +1069,8 @@ function shouldUseGeminiRouter(source: string, localDecision: TopicGroundingDeci
   return [
     "abstract_concept",
     "concept",
-    "factual_keyword",
     "semantic_abstract_prototype",
     "semantic_factual_prototype",
-    "short_or_single_name",
-    "spaced_name_or_title",
   ].includes(localDecision.reason)
 }
 
@@ -1277,7 +1317,8 @@ function buildModelInput({
         ? [
             "참고 내용: 웹 검색 도구를 반드시 사용하세요.",
             "사용자 원문과 직접 관련된 상위 결과 1~3개만 참고하세요.",
-            "검색 결과로 대상 식별이 가능하면 확인된 사실 2~3개와 그 사실이 만드는 긴장을 바탕으로 요약과 질문을 만드세요.",
+            "검색 결과로 대상 식별이 가능하면 안정적으로 확인되는 사실 2~3개와 그 사실이 만드는 긴장을 바탕으로 요약과 질문을 만드세요.",
+            "자주 바뀌는 수치, 순위, 가격, 성적은 사용자가 직접 요구하지 않았다면 정확한 숫자로 단정하지 말고 보수적으로 표현하세요.",
             "검색 결과로 확인되지 않은 이력, 소속, 기록, 수치, 평가를 추가하지 마세요.",
             "summary는 기본 형식을 유지하고, questions/reflections까지 반드시 완성된 JSON 객체 하나만 반환하세요.",
             "마크다운 코드블록, 인사말, 설명 문장은 절대 쓰지 마세요.",
@@ -1292,6 +1333,14 @@ function buildModelInput({
       ? `${sourceKind === "topic" ? "검색 기반 참고 내용" : "참고 내용"}:\n${usableContent}`
       : contentGuide,
   ].join("\n\n")
+}
+
+function getInitialGenerationModel(sourceKind: SourceKind, forceWebSearch: boolean) {
+  if (forceWebSearch || sourceKind === "url" || sourceKind === "youtube") {
+    return sonnetGenerationModel
+  }
+
+  return fastGenerationModel
 }
 
 function buildYouTubeContent(metadata: YouTubeMetadata | null, readerContent: string) {
@@ -1489,7 +1538,7 @@ function getQuestionCacheSourceKey(source: string, sourceKind: SourceKind) {
 
   if (!normalizedSource) return null
 
-  return createHash("sha256").update(`${sourceKind}:${normalizedSource}`).digest("hex")
+  return createHash("sha256").update(`${questionCacheVersion}:${sourceKind}:${normalizedSource}`).digest("hex")
 }
 
 function hasFreshnessSignal(source: string) {
@@ -1699,7 +1748,7 @@ export async function POST(request: Request) {
 
     try {
       const response = await client.messages.create({
-        model: "claude-sonnet-4-6",
+        model: sonnetGenerationModel,
         max_tokens: regenerationMaxTokens,
         temperature: 0.35,
         system: REGENERATE_SYSTEM_PROMPT,
@@ -1767,7 +1816,7 @@ export async function POST(request: Request) {
 
       try {
         const response = await client.messages.create({
-          model: "claude-sonnet-4-6",
+          model: sonnetGenerationModel,
           max_tokens: regenerationMaxTokens,
           temperature: 0.45,
           system: REGENERATE_SYSTEM_PROMPT,
@@ -1923,7 +1972,7 @@ export async function POST(request: Request) {
 
   try {
     const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
+      model: getInitialGenerationModel(sourceKind, forceTopicWebSearch),
       max_tokens: forceTopicWebSearch ? groundedGenerationMaxTokens : generationMaxTokens,
       temperature: forceTopicWebSearch ? 0.25 : 0.35,
       system: SYSTEM_PROMPT,

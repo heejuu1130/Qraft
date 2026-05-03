@@ -511,15 +511,17 @@ function shouldGroundTopic(source: string) {
   const hasAbstractSignal = abstractTopicKeywords.some((keyword) => value.includes(keyword))
   const hasSpecificLatinName = /[a-z]{3,}/.test(value)
   const hasFactualKeyword = factualTopicKeywords.some((keyword) => value.includes(keyword))
+  const hasLikelyHangulName = /^[가-힣]{2,4}$/.test(value)
+  const hasLikelySpacedName =
+    /^[가-힣a-z\s·.-]{3,40}$/.test(value) &&
+    value.split(/\s+/).filter(Boolean).length >= 2 &&
+    !hasAbstractSignal &&
+    !/[와과의을를이가은는에서으로하다되다적인]$/.test(value)
 
   if (!value) return false
   if (/\d/.test(value)) return true
-  if (hasSpecificLatinName || hasFactualKeyword) return true
+  if (hasSpecificLatinName || hasFactualKeyword || hasLikelyHangulName || hasLikelySpacedName) return true
   if (hasAbstractSignal) return false
-
-  if (/^[가-힣]{2,4}$/.test(value) && !hasAbstractSignal) {
-    return true
-  }
 
   return false
 }

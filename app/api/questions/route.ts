@@ -9,6 +9,9 @@ const youtubeMetadataTimeoutMs = 5000
 const generationMaxTokens = 1600
 const regenerationMaxTokens = 1200
 const previousQuestionLimit = 8
+const questionRateLimitWindowMs = 60 * 60 * 1000
+const questionRateLimitMaxRequests = 30
+const questionRateLimitMaxEntries = 1000
 
 const PERSONA = `Qraft의 브랜드 톤:
 - Qraft는 정답을 검사하지 않고, 사유가 시작되는 정확한 입구를 설계합니다.
@@ -123,6 +126,13 @@ type TokenAlertPayload = {
   error: unknown
 }
 
+type QuestionRateLimitEntry = {
+  count: number
+  resetAt: number
+}
+
+const questionRateLimitStore = new Map<string, QuestionRateLimitEntry>()
+
 function isUrl(str: string): boolean {
   try {
     const url = new URL(str)
@@ -130,6 +140,78 @@ function isUrl(str: string): boolean {
   } catch {
     return false
   }
+}
+
+function getClientIp(request: Request): string {
+  const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+  const realIp = request.headers.get("x-real-ip")?.trim()
+  const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim()
+
+  return forwardedFor || realIp || cfConnectingIp || "unknown"
+}
+
+function pruneQuestionRateLimitStore(now: number) {
+  for (const [key, entry] of questionRateLimitStore) {
+    if (entry.resetAt <= now) {
+      questionRateLimitStore.delete(key)
+    }
+  }
+
+  if (questionRateLimitStore.size <= questionRateLimitMaxEntries) {
+    return
+  }
+
+  for (const key of questionRateLimitStore.keys()) {
+    questionRateLimitStore.delete(key)
+
+    if (questionRateLimitStore.size <= questionRateLimitMaxEntries / 2) {
+      break
+    }
+  }
+}
+
+function checkQuestionRateLimit(request: Request) {
+  const now = Date.now()
+  const key = `ip:${getClientIp(request)}`
+
+  pruneQuestionRateLimitStore(now)
+
+  const currentEntry = questionRateLimitStore.get(key)
+
+  if (!currentEntry || currentEntry.resetAt <= now) {
+    questionRateLimitStore.set(key, {
+      count: 1,
+      resetAt: now + questionRateLimitWindowMs,
+    })
+
+    return { allowed: true, retryAfterSeconds: 0 }
+  }
+
+  if (currentEntry.count >= questionRateLimitMaxRequests) {
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.max(1, Math.ceil((currentEntry.resetAt - now) / 1000)),
+    }
+  }
+
+  currentEntry.count += 1
+  return { allowed: true, retryAfterSeconds: 0 }
+}
+
+function questionRateLimitResponse(retryAfterSeconds: number) {
+  return Response.json(
+    {
+      message: "질문 요청이 잠시 많아졌습니다. 잠시 후 다시 시도해 주세요.",
+      code: "QUESTION_RATE_LIMITED",
+      retryable: true,
+    },
+    {
+      status: 429,
+      headers: {
+        "Retry-After": String(retryAfterSeconds),
+      },
+    }
+  )
 }
 
 function isYouTubeUrl(str: string): boolean {
@@ -599,6 +681,12 @@ export async function POST(request: Request) {
 
   if (!source && !existingSummary) {
     return Response.json({ message: "Source is required" }, { status: 400 })
+  }
+
+  const rateLimit = checkQuestionRateLimit(request)
+
+  if (!rateLimit.allowed) {
+    return questionRateLimitResponse(rateLimit.retryAfterSeconds)
   }
 
   // 재생성 모드: 기존 요약으로 질문+고찰만 생성

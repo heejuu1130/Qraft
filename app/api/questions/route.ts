@@ -8,12 +8,9 @@ const jinaReaderTimeoutMs = 8000
 const youtubeReaderTimeoutMs = 5000
 const youtubeMetadataTimeoutMs = 5000
 const generationMaxTokens = 1450
-const groundedGenerationMaxTokens = 1500
-const factBriefMaxTokens = 900
-const skeletonMaxTokens = 420
+const groundedGenerationMaxTokens = 1900
 const geminiRouterTimeoutMs = 1800
 const geminiRouterMaxTokens = 160
-const geminiGroundingTimeoutMs = 8000
 const regenerationMaxTokens = 1050
 const previousQuestionLimit = 8
 const topicWebSearchMaxUses = 1
@@ -318,12 +315,12 @@ const SYSTEM_PROMPT = [
 - 짧은 주제에 참고 내용이 제공된 경우, 반드시 그 검색 결과에서 확인되는 실제 정보와 맥락을 기반으로 요약과 질문을 만듭니다.
 - 사용자 입력 원문에 있는 주제어를 잃지 말고, 참고 내용이 검색 결과일 때는 검색 결과의 잡음이나 광고성 문구를 핵심으로 삼지 않습니다.
 - 검색 결과 중 사용자 원문과 직접 관련이 낮은 결과는 사용하지 않습니다. 결과 여러 개가 서로 다르면 공통으로 확인되는 내용과 가장 직접적인 결과를 우선합니다.
-- 짧은 주제가 fact brief나 검색 기반 참고 내용으로 보강된 경우, 실존 인물, 사건, 작품, 브랜드, 단체, 장소, 수치, 시기 같은 사실성 주제는 반드시 확인된 내용만 사용합니다.
+- 짧은 주제가 web_search나 검색 기반 참고 내용으로 보강된 경우, 실존 인물, 사건, 작품, 브랜드, 단체, 장소, 수치, 시기 같은 사실성 주제는 반드시 확인된 내용만 사용합니다.
 - 검색 결과로 확인되지 않은 사실은 요약에 쓰지 않습니다. 대신 확인된 범위, 불확실성, 생각해볼 쟁점을 중심으로 작성합니다.
 - 검색 기반 참고 내용이 많은 경우에도 사실을 길게 나열하지 않습니다. 입력어를 이해하는 데 필요한 확인된 사실 2~3개와 그 사실들이 만드는 긴장만 남깁니다.
 - 검색 기반 질문은 미래 예측, 추가 검색, 정답 확인을 요구하지 않습니다. 확인된 사실을 바탕으로 사용자의 관점과 판단 기준을 묻습니다.
-- 검색 기반 참고 내용이나 fact brief 없이 제공된 짧은 주제는 개념형 주제로 간주합니다. 이 경우 실존 인물, 사건, 작품 배경, 저자, 연도, 소속, 수치 같은 사실을 절대 덧붙이지 말고 입력어 자체가 품은 관점과 긴장만 다룹니다.
-- 검색 기반 fact brief가 제공된 경우에는 검색이 이미 완료된 상태로 간주하고, fact brief 안의 facts와 sources에서 확인되는 범위만 실제 정보로 사용합니다.
+- web_search 도구나 검색 기반 참고 내용 없이 제공된 짧은 주제는 개념형 주제로 간주합니다. 이 경우 실존 인물, 사건, 작품 배경, 저자, 연도, 소속, 수치 같은 사실을 절대 덧붙이지 말고 입력어 자체가 품은 관점과 긴장만 다룹니다.
+- web_search 도구가 제공된 경우에는 검색 결과를 이 요청의 참고 내용으로 간주하고, 사용자 원문과 직접 관련된 상위 결과 1~3개에서 확인되는 범위만 실제 정보로 사용합니다.
 - 링크 본문이나 검색 결과가 부족하면 모르는 사실을 꾸며내지 말고, 입력된 단어에서 직접 출발한 관점 중심 요약과 질문을 만듭니다.
 - 유튜브 링크에서 영상 제목이나 채널 정보만 확보된 경우, 제목에서 드러나는 주제와 관점으로 요약과 질문을 만들되 "영상을 확인할 수 없습니다", "내용을 요약하기 어렵습니다", "일반적 맥락" 같은 한계 설명을 출력하지 않습니다.
 - 유튜브 제목이나 채널 정보만 확보된 경우, 제목에 없는 작품 배경, 악기, 제작 의도, 인물 관계, 사건을 사실처럼 추가 추정하지 않습니다.
@@ -356,22 +353,6 @@ ${REFLECTION_DESIGN_RULES}
   .filter(Boolean)
   .join("\n\n")
 
-const FACT_BRIEF_PROMPT = `당신은 Qraft의 사실 확인 브리프 작성자입니다.
-실존 인물, 사건, 작품, 브랜드, 기업, 최신 이슈에 대해 검색으로 확인된 정보만 압축합니다.
-
-규칙:
-- 반드시 웹 검색 결과로 확인된 내용만 씁니다.
-- 핵심 사실은 최대 3개입니다.
-- 가장 직접 관련된 상위 결과 1~3개만 참고합니다.
-- 긴 설명, 연대기, 배경 나열을 피하고 사유에 필요한 사실만 남깁니다.
-- 직접 관련 결과가 1개뿐이어도 대상 식별이 가능하면 grounding_status를 partial로 두고 facts를 반환합니다.
-- 대상 식별에 성공했으면 빈 facts를 반환하지 않습니다.
-- 확인되지 않은 추정, 평가, 소문은 do_not_claim에 넣습니다.
-- 서로 다른 결과가 충돌하면 uncertainties에 넣고 단정하지 않습니다.
-- sources는 최대 3개이며 title과 url만 포함합니다.
-- 마크다운, 코드블록, 인사말 없이 JSON 객체 하나만 반환합니다.
-- JSON 형식: {"grounding_status":"grounded|partial|ungrounded","facts":["..."],"tensions":["..."],"uncertainties":["..."],"sources":[{"title":"...","url":"..."}],"do_not_claim":["..."]}`
-
 const GEMINI_ROUTER_PROMPT = `당신은 Qraft의 초고속 라우터입니다.
 입력 주제를 보고 어떤 처리 경로가 맞는지만 판단합니다. 질문, 요약, 설명은 생성하지 않습니다.
 
@@ -391,46 +372,11 @@ route 기준:
 - 반드시 JSON 객체 하나만 반환합니다.
 - JSON 형식: {"route":"abstract_topic|factual_topic|current_fact|external_reference|unclear","needs_grounding":true,"confidence":0.0,"rationale":"짧은 이유"}`
 
-const SKELETON_PROMPT = [
-  PERSONA,
-  `당신은 Qraft의 사유 렌즈 설계자입니다.
-외부 사실을 만들지 말고, 입력어만 보고 질문이 붙잡을 수 있는 관점의 뼈대를 빠르게 만듭니다.
-
-규칙:
-- 실존 인물의 이력, 사건, 소속, 수치, 작품명 등 사실을 절대 쓰지 않습니다.
-- angles는 사유 렌즈 3개입니다.
-- question_frames는 사실 없이도 사용할 수 있는 질문 구조 3개입니다.
-- cautions는 최종 생성자가 피해야 할 위험 1~3개입니다.
-- 마크다운 없이 JSON 객체 하나만 반환합니다.
-- JSON 형식: {"angles":["..."],"question_frames":["..."],"cautions":["..."]}`,
-].join("\n\n")
-
 type QuestionRequest = {
   sourceOrigin?: unknown
   source?: unknown
   summary?: unknown
   previousQuestions?: unknown
-}
-
-type FactBriefSource = {
-  title: string
-  url: string
-}
-
-type FactBrief = {
-  doNotClaim: string[]
-  facts: string[]
-  groundingStatus: "grounded" | "partial" | "ungrounded"
-  provider: "gemini" | "claude_web_search"
-  sources: FactBriefSource[]
-  tensions: string[]
-  uncertainties: string[]
-}
-
-type TopicSkeleton = {
-  angles: string[]
-  cautions: string[]
-  questionFrames: string[]
 }
 
 const LINK_PARSE_FAILURE_MESSAGE =
@@ -765,89 +711,6 @@ function getResponseText(content: Array<{ type: string; text?: string }>) {
 function parseJsonFromText(raw: string): unknown {
   const jsonMatch = raw.match(/\{[\s\S]*\}/) ?? raw.match(/\[[\s\S]*\]/)
   return JSON.parse(jsonMatch ? jsonMatch[0] : raw)
-}
-
-function getStringArray(value: unknown, limit: number) {
-  return Array.isArray(value)
-    ? value
-        .filter((item): item is string => typeof item === "string")
-        .map((item) => item.replace(/\s+/g, " ").trim())
-        .filter(Boolean)
-        .slice(0, limit)
-    : []
-}
-
-function normalizeSources(value: unknown, fallbackSources: FactBriefSource[] = []) {
-  const sources = Array.isArray(value)
-    ? value
-        .map((source): FactBriefSource | null => {
-          if (!source || typeof source !== "object") return null
-
-          const record = source as Record<string, unknown>
-          const title = typeof record.title === "string" ? record.title.trim() : ""
-          const url =
-            typeof record.url === "string"
-              ? record.url.trim()
-              : typeof record.uri === "string"
-                ? record.uri.trim()
-                : ""
-
-          return title && url ? { title, url } : null
-        })
-        .filter((source): source is FactBriefSource => Boolean(source))
-    : []
-
-  return [...sources, ...fallbackSources].slice(0, 3)
-}
-
-function normalizeFactBrief(
-  parsed: unknown,
-  provider: FactBrief["provider"],
-  fallbackSources: FactBriefSource[] = []
-): FactBrief | null {
-  if (!parsed || typeof parsed !== "object") return null
-
-  const payload = parsed as Record<string, unknown>
-  const facts = getStringArray(payload.facts, 3)
-  const tensions = getStringArray(payload.tensions, 2)
-  const uncertainties = getStringArray(payload.uncertainties, 3)
-  const doNotClaim = getStringArray(payload.do_not_claim ?? payload.doNotClaim, 5)
-  const sources = normalizeSources(payload.sources, fallbackSources)
-  const groundingStatus =
-    payload.grounding_status === "partial" || payload.groundingStatus === "partial"
-      ? "partial"
-      : facts.length > 0
-        ? "grounded"
-        : "ungrounded"
-
-  if (facts.length === 0) return null
-
-  return {
-    doNotClaim,
-    facts,
-    groundingStatus,
-    provider,
-    sources,
-    tensions,
-    uncertainties,
-  }
-}
-
-function normalizeTopicSkeleton(parsed: unknown): TopicSkeleton | null {
-  if (!parsed || typeof parsed !== "object") return null
-
-  const payload = parsed as Record<string, unknown>
-  const angles = getStringArray(payload.angles, 3)
-  const questionFrames = getStringArray(payload.question_frames ?? payload.questionFrames, 3)
-  const cautions = getStringArray(payload.cautions, 3)
-
-  if (angles.length === 0 && questionFrames.length === 0) return null
-
-  return {
-    angles,
-    cautions,
-    questionFrames,
-  }
 }
 
 function softenQuestionTone(item: string) {
@@ -1278,10 +1141,6 @@ function getGeminiApiKey() {
   return process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim() || ""
 }
 
-function getGeminiModel() {
-  return process.env.GEMINI_GROUNDING_MODEL?.trim() || "gemini-2.5-flash-lite"
-}
-
 function getGeminiRouterModel() {
   return process.env.GEMINI_ROUTER_MODEL?.trim() || "gemini-2.5-flash-lite"
 }
@@ -1297,39 +1156,6 @@ function getGeminiText(payload: unknown) {
     .filter(Boolean)
     .join("\n")
     .trim()
-}
-
-function getGeminiSources(payload: unknown) {
-  if (!payload || typeof payload !== "object") return []
-
-  const response = payload as {
-    candidates?: Array<{
-      groundingMetadata?: {
-        groundingChunks?: Array<{ web?: { title?: unknown; uri?: unknown } }>
-      }
-    }>
-  }
-
-  return (response.candidates ?? [])
-    .flatMap((candidate) => candidate.groundingMetadata?.groundingChunks ?? [])
-    .map((chunk): FactBriefSource | null => {
-      const title = typeof chunk.web?.title === "string" ? chunk.web.title.trim() : ""
-      const url = typeof chunk.web?.uri === "string" ? chunk.web.uri.trim() : ""
-
-      return title && url ? { title, url } : null
-    })
-    .filter((source): source is FactBriefSource => Boolean(source))
-    .slice(0, 3)
-}
-
-function buildFactBriefInput(source: string, reason?: TopicGroundingReason) {
-  return [
-    `사용자 입력: ${source}`,
-    `라우터 판단: ${reason ?? "unknown"}`,
-    "이 입력이 가리키는 실제 대상이 무엇인지 먼저 좁히세요.",
-    "동명이인, 동명 작품, 동명 브랜드가 있으면 가장 널리 직접 관련된 결과를 우선하되 불확실성에 남기세요.",
-    "Qraft 최종 질문에 필요한 만큼만 사실을 압축하세요.",
-  ].join("\n")
 }
 
 async function fetchGeminiRouterDecision(source: string): Promise<GeminiRouterDecision | null> {
@@ -1423,108 +1249,18 @@ async function resolveTopicGroundingDecision(source: string) {
   return localDecision
 }
 
-async function fetchGeminiFactBrief(source: string, reason?: TopicGroundingReason): Promise<FactBrief | null> {
-  const apiKey = getGeminiApiKey()
-
-  if (!apiKey) return null
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${getGeminiModel()}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: [FACT_BRIEF_PROMPT, buildFactBriefInput(source, reason)].join("\n\n"),
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          maxOutputTokens: factBriefMaxTokens,
-          temperature: 0.1,
-        },
-        tools: [{ google_search: {} }],
-      }),
-      signal: AbortSignal.timeout(geminiGroundingTimeoutMs),
-    }
-  )
-
-  if (!response.ok) {
-    throw new Error(`Gemini grounding request failed: ${response.status}`)
-  }
-
-  const payload: unknown = await response.json()
-  const raw = getGeminiText(payload)
-  const parsed = parseJsonFromText(raw)
-
-  return normalizeFactBrief(parsed, "gemini", getGeminiSources(payload))
-}
-
-async function fetchClaudeFactBrief(source: string, reason?: TopicGroundingReason): Promise<FactBrief | null> {
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: factBriefMaxTokens,
-    temperature: 0.1,
-    system: FACT_BRIEF_PROMPT,
-    messages: [{ role: "user", content: buildFactBriefInput(source, reason) }],
-    tools: [
-      {
-        type: "web_search_20250305" as const,
-        name: "web_search" as const,
-        max_uses: topicWebSearchMaxUses,
-      },
-    ],
-    tool_choice: { type: "tool" as const, name: "web_search" },
-  })
-
-  const parsed = parseJsonFromText(getResponseText(response.content))
-
-  return normalizeFactBrief(parsed, "claude_web_search")
-}
-
-async function fetchGroundedFactBrief(source: string, reason?: TopicGroundingReason) {
-  try {
-    const geminiFactBrief = await fetchGeminiFactBrief(source, reason)
-
-    if (geminiFactBrief) {
-      return geminiFactBrief
-    }
-  } catch (error) {
-    console.error("Qraft Gemini grounding failed", error)
-  }
-
-  return fetchClaudeFactBrief(source, reason)
-}
-
-async function buildTopicSkeleton(source: string): Promise<TopicSkeleton | null> {
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: skeletonMaxTokens,
-    temperature: 0.35,
-    system: SKELETON_PROMPT,
-    messages: [{ role: "user", content: `사용자 입력:\n${source}` }],
-  })
-
-  return normalizeTopicSkeleton(parseJsonFromText(getResponseText(response.content)))
-}
-
 function buildModelInput({
   source,
   content,
   sourceKind,
   resolved,
+  forceWebSearch,
 }: {
   source: string
   content: string
   sourceKind: SourceKind
   resolved: boolean
+  forceWebSearch?: boolean
 }) {
   const sourceLabel =
     sourceKind === "youtube"
@@ -1537,7 +1273,16 @@ function buildModelInput({
   const usableContent = content.trim().slice(0, contentCharacterLimit)
   const contentGuide =
     sourceKind === "topic"
-      ? "참고 내용: 개념형 주제입니다. 실존 인물, 사건, 작품 배경, 저자, 연도, 소속, 수치 같은 사실을 덧붙이지 말고 입력어 자체가 품은 관점과 긴장만 다루세요."
+      ? forceWebSearch
+        ? [
+            "참고 내용: 웹 검색 도구를 반드시 사용하세요.",
+            "사용자 원문과 직접 관련된 상위 결과 1~3개만 참고하세요.",
+            "검색 결과로 대상 식별이 가능하면 확인된 사실 2~3개와 그 사실이 만드는 긴장을 바탕으로 요약과 질문을 만드세요.",
+            "검색 결과로 확인되지 않은 이력, 소속, 기록, 수치, 평가를 추가하지 마세요.",
+            "summary는 기본 형식을 유지하고, questions/reflections까지 반드시 완성된 JSON 객체 하나만 반환하세요.",
+            "마크다운 코드블록, 인사말, 설명 문장은 절대 쓰지 마세요.",
+          ].join(" ")
+        : "참고 내용: 개념형 주제입니다. 실존 인물, 사건, 작품 배경, 저자, 연도, 소속, 수치 같은 사실을 덧붙이지 말고 입력어 자체가 품은 관점과 긴장만 다루세요."
       : "참고 내용: 충분히 확보되지 않았습니다. 사용자 원문에서 확인할 수 있는 범위를 넘어서 단정하지 마세요."
 
   return [
@@ -1546,93 +1291,6 @@ function buildModelInput({
     resolved && usableContent && usableContent !== source
       ? `${sourceKind === "topic" ? "검색 기반 참고 내용" : "참고 내용"}:\n${usableContent}`
       : contentGuide,
-  ].join("\n\n")
-}
-
-function buildGroundedTopicModelInput({
-  source,
-  factBrief,
-  skeleton,
-  reason,
-}: {
-  source: string
-  factBrief: FactBrief
-  skeleton: TopicSkeleton | null
-  reason?: TopicGroundingReason
-}) {
-  const briefPayload = {
-    grounding_status: factBrief.groundingStatus,
-    provider: factBrief.provider,
-    facts: factBrief.facts,
-    tensions: factBrief.tensions,
-    uncertainties: factBrief.uncertainties,
-    sources: factBrief.sources,
-    do_not_claim: factBrief.doNotClaim,
-  }
-  const skeletonPayload = skeleton
-    ? {
-        angles: skeleton.angles,
-        question_frames: skeleton.questionFrames,
-        cautions: skeleton.cautions,
-      }
-    : null
-
-  return [
-    "입력 유형: 검색 완료된 사실형 짧은 주제",
-    `라우터 판단: ${reason ?? "unknown"}`,
-    `사용자 원문:\n${source}`,
-    `검색 기반 fact brief:\n${JSON.stringify(briefPayload, null, 2)}`,
-    skeletonPayload
-      ? `사유 렌즈 초안:\n${JSON.stringify(skeletonPayload, null, 2)}`
-      : "사유 렌즈 초안: 없음",
-    [
-      "생성 규칙:",
-      "- fact brief의 facts와 sources에서 확인되지 않은 사실은 추가하지 마세요.",
-      "- do_not_claim 항목은 절대 사실처럼 쓰지 마세요.",
-      "- uncertainties는 단정하지 말고, 필요하면 판단의 조건으로만 다루세요.",
-      "- 사유 렌즈 초안은 질문 방향 참고용이며 사실 근거가 아닙니다.",
-      "- summary는 4줄 이내로 압축합니다.",
-      "- 질문은 fact brief를 확인하는 시험 문제가 아니라 사용자의 관점과 판단 기준을 여는 문장이어야 합니다.",
-      "- 반드시 summary, questions, reflections를 가진 JSON 객체만 반환하세요.",
-    ].join("\n"),
-  ].join("\n\n")
-}
-
-function buildDirectGroundedTopicModelInput({
-  source,
-  reason,
-  skeleton,
-}: {
-  source: string
-  reason?: TopicGroundingReason
-  skeleton: TopicSkeleton | null
-}) {
-  const skeletonPayload = skeleton
-    ? {
-        angles: skeleton.angles,
-        question_frames: skeleton.questionFrames,
-        cautions: skeleton.cautions,
-      }
-    : null
-
-  return [
-    "입력 유형: 웹 검색 직접 복구가 필요한 사실형 짧은 주제",
-    `라우터 판단: ${reason ?? "unknown"}`,
-    `사용자 원문:\n${source}`,
-    skeletonPayload
-      ? `사유 렌즈 초안:\n${JSON.stringify(skeletonPayload, null, 2)}`
-      : "사유 렌즈 초안: 없음",
-    [
-      "검색 및 생성 규칙:",
-      "- 반드시 web_search를 사용해 사용자 원문과 직접 관련된 결과를 확인하세요.",
-      "- web_search로 확인한 결과는 이 요청의 참고 내용으로 간주합니다.",
-      "- 가장 직접 관련된 상위 결과 1~3개만 근거로 삼으세요.",
-      "- 검색 결과에서 대상 식별이 가능하면 일반적인 '정보 부족' 요약으로 도망가지 말고 확인된 범위 안에서 생성하세요.",
-      "- 확인되지 않은 이력, 소속, 기록, 수치, 평가를 추가하지 마세요.",
-      "- 결과가 하나뿐이거나 부분적이면 그 확인된 범위만 바탕으로 요약과 질문을 만드세요.",
-      "- 질문은 정보 확인 문제가 아니라 확인된 사실이 여는 관점과 판단 기준을 묻는 문장이어야 합니다.",
-      "- 반드시 summary, questions, reflections를 가진 JSON 객체만 반환하세요.",
-    ].join("\n"),
   ].join("\n\n")
 }
 
@@ -2175,8 +1833,8 @@ export async function POST(request: Request) {
   const forceTopicWebSearch = topicGroundingDecision?.useWebSearch ?? false
   const cacheSourceKey = getQuestionCacheSourceKey(source, sourceKind)
   const cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, forceTopicWebSearch)
-  let factProvider: FactBrief["provider"] | null = null
-  let factGroundingStatus: FactBrief["groundingStatus"] | null = null
+  let factProvider: "claude_web_search" | null = null
+  let factGroundingStatus: "partial" | null = null
 
   if (cacheSourceKey && cacheExpiresAt) {
     const cachedResult = await getQuestionGenerationCache(cacheSourceKey)
@@ -2248,98 +1906,18 @@ export async function POST(request: Request) {
     return linkParseFailureResponse()
   }
 
-  let modelInput: string
-  let useDirectGroundedRecovery = false
-
   if (forceTopicWebSearch) {
-    const [factBriefResult, skeletonResult] = await Promise.allSettled([
-      fetchGroundedFactBrief(source, topicGroundingDecision?.reason),
-      buildTopicSkeleton(source),
-    ])
-
-    if (factBriefResult.status === "rejected") {
-      console.error("Qraft fact brief failed", factBriefResult.reason)
-
-      if (isTokenExhaustedError(factBriefResult.reason)) {
-        await notifyTokenExhausted({
-          mode: "generate",
-          sourceKind,
-          request,
-          error: factBriefResult.reason,
-        })
-        await recordQuestionGenerationEvent({
-          mode: "generate",
-          sourceKind,
-          sourceText: source,
-          topicGroundingDecision,
-          useWebSearch: forceTopicWebSearch,
-          generationSuccess: false,
-          latencyMs: getLatencyMs(),
-          errorCode: TOKEN_EXHAUSTED_CODE,
-          previousQuestionCount: previousQuestions.length,
-          request,
-        })
-        return tokenExhaustedResponse()
-      }
-    }
-
-    if (skeletonResult.status === "rejected") {
-      console.error("Qraft topic skeleton failed", skeletonResult.reason)
-
-      if (isTokenExhaustedError(skeletonResult.reason)) {
-        await notifyTokenExhausted({
-          mode: "generate",
-          sourceKind,
-          request,
-          error: skeletonResult.reason,
-        })
-        await recordQuestionGenerationEvent({
-          mode: "generate",
-          sourceKind,
-          sourceText: source,
-          topicGroundingDecision,
-          useWebSearch: forceTopicWebSearch,
-          generationSuccess: false,
-          latencyMs: getLatencyMs(),
-          errorCode: TOKEN_EXHAUSTED_CODE,
-          previousQuestionCount: previousQuestions.length,
-          request,
-        })
-        return tokenExhaustedResponse()
-      }
-    }
-
-    const factBrief = factBriefResult.status === "fulfilled" ? factBriefResult.value : null
-    const skeleton = skeletonResult.status === "fulfilled" ? skeletonResult.value : null
-
-    if (!factBrief) {
-      useDirectGroundedRecovery = true
-      factProvider = "claude_web_search"
-      factGroundingStatus = "partial"
-      modelInput = buildDirectGroundedTopicModelInput({
-        source,
-        skeleton,
-        reason: topicGroundingDecision?.reason,
-      })
-    } else {
-      factProvider = factBrief.provider
-      factGroundingStatus = factBrief.groundingStatus
-
-      modelInput = buildGroundedTopicModelInput({
-        source,
-        factBrief,
-        skeleton,
-        reason: topicGroundingDecision?.reason,
-      })
-    }
-  } else {
-    modelInput = buildModelInput({
-      source,
-      content,
-      sourceKind,
-      resolved: contentResolved && content.trim().length > 0,
-    })
+    factProvider = "claude_web_search"
+    factGroundingStatus = "partial"
   }
+
+  const modelInput = buildModelInput({
+    source,
+    content,
+    sourceKind,
+    resolved: contentResolved && content.trim().length > 0,
+    forceWebSearch: forceTopicWebSearch,
+  })
 
   let raw = ""
 
@@ -2347,10 +1925,10 @@ export async function POST(request: Request) {
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: forceTopicWebSearch ? groundedGenerationMaxTokens : generationMaxTokens,
-      temperature: forceTopicWebSearch ? 0.28 : 0.35,
+      temperature: forceTopicWebSearch ? 0.25 : 0.35,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: modelInput }],
-      ...(useDirectGroundedRecovery
+      ...(forceTopicWebSearch
         ? {
             tools: [
               {

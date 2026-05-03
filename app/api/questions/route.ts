@@ -19,7 +19,6 @@ const questionRateLimitMaxRequests = 30
 const questionRateLimitMaxEntries = 1000
 const factualTopicKeywords = [
   "ceo",
-  "ai",
   "앱",
   "공연",
   "gpt",
@@ -114,6 +113,8 @@ const externalReferenceKeywords = [
 
 const abstractTopicKeywords = [
   "감정",
+  "감각",
+  "갈등",
   "고독",
   "공감",
   "공동체",
@@ -124,8 +125,10 @@ const abstractTopicKeywords = [
   "경제",
   "교육",
   "나",
+  "노동",
   "도파민",
   "데이터",
+  "디자인",
   "돈",
   "돌봄",
   "마음",
@@ -161,6 +164,7 @@ const abstractTopicKeywords = [
   "정체성",
   "주체성",
   "존재",
+  "창작",
   "죽음",
   "책임",
   "철학",
@@ -194,6 +198,52 @@ const abstractLatinTopics = [
   "modernity",
   "philosophy",
   "self",
+]
+
+const factualRouterPrototypes = [
+  "실존 인물의 근황",
+  "배우 출연 작품",
+  "가수 앨범 활동",
+  "브랜드 출시 정보",
+  "기업 매출과 대표",
+  "제품 가격과 스펙",
+  "영화 개봉 정보",
+  "드라마 출연진",
+  "유튜버 채널 정보",
+  "정치인 선거 이력",
+  "선수 기록과 소속팀",
+  "최근 뉴스 사건",
+  "전시회 일정과 장소",
+  "앱 서비스 업데이트",
+  "책 저자와 출간 정보",
+  "작품 줄거리와 평점",
+  "주가와 시장 반응",
+  "대학교 교수 이력",
+  "맛집 리뷰와 위치",
+  "여행지 날씨와 후기",
+]
+
+const abstractRouterPrototypes = [
+  "좋은 삶의 의미",
+  "사랑과 관계의 기준",
+  "현대인의 고독",
+  "불안과 욕망",
+  "자유와 책임",
+  "기술과 인간성",
+  "알고리즘과 취향",
+  "소비와 정체성",
+  "돈과 행복",
+  "일과 커리어의 의미",
+  "성공과 실패의 감각",
+  "돌봄과 공동체",
+  "기억과 상실",
+  "예술과 창작",
+  "디자인과 사용자의 마음",
+  "언어와 침묵",
+  "민주주의와 갈등",
+  "혐오와 공감",
+  "시간과 성장",
+  "자본주의와 욕망",
 ]
 
 const PERSONA = `Qraft의 브랜드 톤:
@@ -773,6 +823,8 @@ type TopicGroundingReason =
   | "mixed_entity_signal"
   | "short_or_single_name"
   | "spaced_name_or_title"
+  | "semantic_factual_prototype"
+  | "semantic_abstract_prototype"
   | "abstract_latin_concept"
   | "abstract_concept"
   | "concept"
@@ -786,6 +838,81 @@ function getSourceKind(source: string): SourceKind {
   if (isYouTubeUrl(source)) return "youtube"
   if (isUrl(source)) return "url"
   return source.length < 100 ? "topic" : "text"
+}
+
+function normalizeRouterText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "")
+    .trim()
+}
+
+function getCharacterNgrams(value: string, size = 2) {
+  const normalized = normalizeRouterText(value)
+  const ngrams = new Set<string>()
+
+  if (!normalized) return ngrams
+  if (normalized.length <= size) {
+    ngrams.add(normalized)
+    return ngrams
+  }
+
+  for (let index = 0; index <= normalized.length - size; index += 1) {
+    ngrams.add(normalized.slice(index, index + size))
+  }
+
+  return ngrams
+}
+
+function getRouterTextSimilarity(input: string, prototype: string) {
+  const normalizedInput = normalizeRouterText(input)
+  const normalizedPrototype = normalizeRouterText(prototype)
+
+  if (!normalizedInput || !normalizedPrototype) return 0
+  if (normalizedInput === normalizedPrototype) return 1
+
+  const inputNgrams = getCharacterNgrams(normalizedInput)
+  const prototypeNgrams = getCharacterNgrams(normalizedPrototype)
+
+  if (inputNgrams.size === 0 || prototypeNgrams.size === 0) return 0
+
+  let intersectionSize = 0
+  inputNgrams.forEach((ngram) => {
+    if (prototypeNgrams.has(ngram)) {
+      intersectionSize += 1
+    }
+  })
+
+  const unionSize = inputNgrams.size + prototypeNgrams.size - intersectionSize
+  const jaccardScore = unionSize > 0 ? intersectionSize / unionSize : 0
+  const containmentScore =
+    normalizedInput.includes(normalizedPrototype) || normalizedPrototype.includes(normalizedInput)
+      ? Math.min(0.58, normalizedInput.length / Math.max(normalizedPrototype.length, 1))
+      : 0
+
+  return Math.max(jaccardScore, containmentScore)
+}
+
+function getRouterPrototypeScore(input: string, prototypes: string[]) {
+  const scores = prototypes
+    .map((prototype) => getRouterTextSimilarity(input, prototype))
+    .sort((a, b) => b - a)
+
+  return (scores[0] ?? 0) + (scores[1] ?? 0) * 0.25
+}
+
+function getSemanticRouterDecision(input: string) {
+  const factualScore = getRouterPrototypeScore(input, factualRouterPrototypes)
+  const abstractScore = getRouterPrototypeScore(input, abstractRouterPrototypes)
+
+  if (abstractScore >= 0.34 && abstractScore >= factualScore + 0.07) {
+    return { kind: "abstract" as const, score: abstractScore }
+  }
+  if (factualScore >= 0.38 && factualScore >= abstractScore + 0.09) {
+    return { kind: "factual" as const, score: factualScore }
+  }
+
+  return null
 }
 
 // Keep this deterministic. A model-based classifier would add another slow call before generation.
@@ -818,6 +945,7 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
     !conceptLeadWords.includes(firstWord) &&
     !/(?:은|는|한|적인|로운)$/.test(firstWord) &&
     hasAbstractSignal
+  const semanticDecision = getSemanticRouterDecision(value)
   const hasLikelyHangulName = /^[가-힣]{2,6}$/.test(value) && !hasAbstractSignal
   const hasLikelySpacedName =
     /^[가-힣a-z\s·.-]{3,40}$/.test(value) &&
@@ -829,11 +957,18 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
   if (!value) return { reason: "empty", useWebSearch: false }
   if (hasTemporalOrNumericSignal) return { reason: "numbers_or_dates", useWebSearch: true }
   if (hasExternalReferenceKeyword) return { reason: "external_reference", useWebSearch: true }
-  if (hasFactualKeyword) return { reason: "factual_keyword", useWebSearch: true }
   if (hasNamedWorkMarker) return { reason: "named_work_marker", useWebSearch: true }
   if (hasMixedEntitySignal) return { reason: "mixed_entity_signal", useWebSearch: true }
   if (hasSpecificLatinName) return { reason: "latin_entity", useWebSearch: true }
   if (hasEntityWithConcept) return { reason: "spaced_name_or_title", useWebSearch: true }
+  if (semanticDecision?.kind === "abstract") {
+    return { reason: "semantic_abstract_prototype", useWebSearch: false }
+  }
+  if (semanticDecision?.kind === "factual") {
+    return { reason: "semantic_factual_prototype", useWebSearch: true }
+  }
+  if (hasAbstractSignal && hasFactualKeyword) return { reason: "abstract_concept", useWebSearch: false }
+  if (hasFactualKeyword) return { reason: "factual_keyword", useWebSearch: true }
   if (hasLikelyHangulName) return { reason: "short_or_single_name", useWebSearch: true }
   if (hasLikelySpacedName) return { reason: "spaced_name_or_title", useWebSearch: true }
   if (hasAbstractLatinSignal) return { reason: "abstract_latin_concept", useWebSearch: false }

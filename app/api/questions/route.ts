@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk"
+import { createHash } from "crypto"
 import { createRouteClient } from "@/lib/supabase/route"
 
 const client = new Anthropic({ timeout: 30000 })
@@ -17,6 +18,10 @@ const topicWebSearchMaxUses = 1
 const questionRateLimitWindowMs = 60 * 60 * 1000
 const questionRateLimitMaxRequests = 30
 const questionRateLimitMaxEntries = 1000
+const cacheFreshnessTtlMs = 12 * 60 * 60 * 1000
+const cacheFactualTopicTtlMs = 24 * 60 * 60 * 1000
+const cacheTopicTtlMs = 3 * 24 * 60 * 60 * 1000
+const cacheLinkTtlMs = 7 * 24 * 60 * 60 * 1000
 const factualTopicKeywords = [
   "ceo",
   "앱",
@@ -417,6 +422,7 @@ type TokenAlertPayload = {
 }
 
 type QuestionGenerationEventPayload = {
+  cacheHit?: boolean
   errorCode?: string | null
   factGroundingStatus?: string | null
   factProvider?: string | null
@@ -431,6 +437,40 @@ type QuestionGenerationEventPayload = {
   sourceText?: string | null
   topicGroundingDecision?: TopicGroundingDecision | null
   useWebSearch?: boolean | null
+}
+
+type QuestionCachePayload = {
+  expiresAt: string
+  factGroundingStatus?: string | null
+  factProvider?: string | null
+  reflections: string[]
+  routerReason?: string | null
+  questions: string[]
+  sourceKey: string
+  sourceKind: Exclude<SourceKind, "text">
+  sourceText: string
+  summary: string
+  useWebSearch?: boolean | null
+}
+
+type QuestionCacheRecord = {
+  fact_grounding_status?: unknown
+  fact_provider?: unknown
+  questions?: unknown
+  reflections?: unknown
+  router_reason?: unknown
+  summary?: unknown
+  use_web_search?: unknown
+}
+
+type QuestionCacheHit = {
+  factGroundingStatus: string | null
+  factProvider: string | null
+  questions: string[]
+  reflections: string[]
+  routerReason: string | null
+  summary: string
+  useWebSearch: boolean | null
 }
 
 type QuestionRateLimitEntry = {
@@ -530,6 +570,31 @@ function isYouTubeUrl(str: string): boolean {
   } catch {
     return false
   }
+}
+
+function getYouTubeVideoId(source: string) {
+  try {
+    const url = new URL(source)
+    const hostname = url.hostname.replace(/^www\./, "")
+
+    if (hostname === "youtu.be") {
+      return url.pathname.split("/").filter(Boolean)[0] ?? ""
+    }
+
+    if (hostname === "youtube.com" || hostname.endsWith(".youtube.com")) {
+      if (url.pathname === "/watch") {
+        return url.searchParams.get("v")?.trim() ?? ""
+      }
+
+      const [, route, id] = url.pathname.split("/")
+
+      if (route === "shorts" || route === "embed" || route === "live") {
+        return id?.trim() ?? ""
+      }
+    }
+  } catch {}
+
+  return ""
 }
 
 type YouTubeMetadata = {
@@ -1457,7 +1522,167 @@ function getQuestionGenerationEventSourceText(sourceText?: string | null) {
   return trimmed ? trimmed.slice(0, 2000) : null
 }
 
+function normalizeUrlForCache(source: string) {
+  try {
+    const url = new URL(source)
+    const filteredParams = [...url.searchParams.entries()]
+      .filter(([key]) => {
+        const normalizedKey = key.toLowerCase()
+
+        return (
+          !normalizedKey.startsWith("utm_") &&
+          !["fbclid", "gclid", "igshid", "mc_cid", "mc_eid", "si"].includes(normalizedKey)
+        )
+      })
+      .sort(([a], [b]) => a.localeCompare(b))
+    const query = new URLSearchParams(filteredParams).toString()
+    const pathname = url.pathname.replace(/\/+$/, "") || "/"
+
+    return `${url.protocol}//${url.hostname.toLowerCase()}${pathname}${query ? `?${query}` : ""}`
+  } catch {
+    return null
+  }
+}
+
+function normalizeSourceForCache(source: string, sourceKind: SourceKind) {
+  if (sourceKind === "text") return null
+
+  if (sourceKind === "topic") {
+    return source.trim().replace(/\s+/g, " ").toLowerCase()
+  }
+
+  if (sourceKind === "youtube") {
+    const videoId = getYouTubeVideoId(source)
+
+    if (videoId) {
+      return `youtube:${videoId}`
+    }
+  }
+
+  return normalizeUrlForCache(source)
+}
+
+function getQuestionCacheSourceKey(source: string, sourceKind: SourceKind) {
+  const normalizedSource = normalizeSourceForCache(source, sourceKind)
+
+  if (!normalizedSource) return null
+
+  return createHash("sha256").update(`${sourceKind}:${normalizedSource}`).digest("hex")
+}
+
+function hasFreshnessSignal(source: string) {
+  return /(?:오늘|어제|내일|올해|작년|내년|최근|요즘|현재|지금|최신|상반기|하반기|분기|\d{4}|월|일|년|시즌)/.test(
+    source.toLowerCase()
+  )
+}
+
+function getQuestionCacheExpiresAt(source: string, sourceKind: SourceKind, useWebSearch: boolean) {
+  if (sourceKind === "text") return null
+
+  const ttlMs =
+    hasFreshnessSignal(source)
+      ? cacheFreshnessTtlMs
+      : sourceKind === "topic"
+        ? useWebSearch
+          ? cacheFactualTopicTtlMs
+          : cacheTopicTtlMs
+        : cacheLinkTtlMs
+
+  return new Date(Date.now() + ttlMs).toISOString()
+}
+
+function normalizeCacheStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 3)
+    : []
+}
+
+function normalizeQuestionCacheRecord(record: unknown): QuestionCacheHit | null {
+  if (!record || typeof record !== "object") return null
+
+  const payload = record as QuestionCacheRecord
+  const summary = typeof payload.summary === "string" ? payload.summary.trim() : ""
+  const questions = normalizeCacheStringArray(payload.questions)
+  const reflections = normalizeCacheStringArray(payload.reflections)
+
+  if (!summary || questions.length === 0 || reflections.length === 0) return null
+
+  return {
+    factGroundingStatus:
+      typeof payload.fact_grounding_status === "string" ? payload.fact_grounding_status : null,
+    factProvider: typeof payload.fact_provider === "string" ? payload.fact_provider : null,
+    questions,
+    reflections,
+    routerReason: typeof payload.router_reason === "string" ? payload.router_reason : null,
+    summary,
+    useWebSearch: typeof payload.use_web_search === "boolean" ? payload.use_web_search : null,
+  }
+}
+
+async function getQuestionGenerationCache(sourceKey: string): Promise<QuestionCacheHit | null> {
+  try {
+    const { supabase } = await createRouteClient()
+    const { data, error } = await supabase.rpc("get_question_generation_cache", {
+      cache_source_key: sourceKey,
+    })
+
+    if (error) {
+      console.error("Qraft question cache lookup failed", error)
+      return null
+    }
+
+    const record = Array.isArray(data) ? data[0] : data
+
+    return normalizeQuestionCacheRecord(record)
+  } catch (error) {
+    console.error("Qraft question cache lookup failed", error)
+    return null
+  }
+}
+
+async function saveQuestionGenerationCache({
+  expiresAt,
+  factGroundingStatus = null,
+  factProvider = null,
+  questions,
+  reflections,
+  routerReason = null,
+  sourceKey,
+  sourceKind,
+  sourceText,
+  summary,
+  useWebSearch = null,
+}: QuestionCachePayload) {
+  try {
+    const { supabase } = await createRouteClient()
+    const { error } = await supabase.rpc("upsert_question_generation_cache", {
+      cache_source_key: sourceKey,
+      cache_source_text: sourceText.slice(0, 2000),
+      cache_source_kind: sourceKind,
+      cache_summary: summary,
+      cache_questions: questions,
+      cache_reflections: reflections,
+      cache_expires_at: expiresAt,
+      cache_router_reason: routerReason,
+      cache_use_web_search: useWebSearch,
+      cache_fact_provider: factProvider,
+      cache_fact_grounding_status: factGroundingStatus,
+    })
+
+    if (error) {
+      console.error("Qraft question cache save failed", error)
+    }
+  } catch (error) {
+    console.error("Qraft question cache save failed", error)
+  }
+}
+
 async function recordQuestionGenerationEvent({
+  cacheHit = false,
   errorCode = null,
   factGroundingStatus = null,
   factProvider = null,
@@ -1494,6 +1719,7 @@ async function recordQuestionGenerationEvent({
       semantic_score_abstract: topicGroundingDecision?.semanticScoreAbstract ?? null,
       fact_provider: factProvider,
       fact_grounding_status: factGroundingStatus,
+      cache_hit: cacheHit,
       generation_success: generationSuccess,
       latency_ms: Math.max(0, Math.round(latencyMs)),
       error_code: errorCode,
@@ -1678,8 +1904,39 @@ export async function POST(request: Request) {
   const topicGroundingDecision =
     sourceKind === "topic" ? getTopicGroundingDecision(source) : null
   const forceTopicWebSearch = topicGroundingDecision?.useWebSearch ?? false
+  const cacheSourceKey = getQuestionCacheSourceKey(source, sourceKind)
+  const cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, forceTopicWebSearch)
   let factProvider: FactBrief["provider"] | null = null
   let factGroundingStatus: FactBrief["groundingStatus"] | null = null
+
+  if (cacheSourceKey && cacheExpiresAt) {
+    const cachedResult = await getQuestionGenerationCache(cacheSourceKey)
+
+    if (cachedResult) {
+      await recordQuestionGenerationEvent({
+        mode: "generate",
+        sourceKind,
+        sourceText: source,
+        topicGroundingDecision,
+        useWebSearch: cachedResult.useWebSearch ?? forceTopicWebSearch,
+        factProvider: cachedResult.factProvider,
+        factGroundingStatus: cachedResult.factGroundingStatus,
+        generationSuccess: true,
+        cacheHit: true,
+        latencyMs: getLatencyMs(),
+        questionCount: cachedResult.questions.length,
+        reflectionCount: cachedResult.reflections.length,
+        previousQuestionCount: previousQuestions.length,
+        request,
+      })
+
+      return Response.json({
+        summary: cachedResult.summary,
+        questions: cachedResult.questions,
+        reflections: cachedResult.reflections,
+      })
+    }
+  }
 
   if (sourceKind === "youtube") {
     const [readerResult, metadataResult] = await Promise.allSettled([
@@ -1976,6 +2233,22 @@ export async function POST(request: Request) {
   questions = normalizeList(questions, FALLBACK_QUESTIONS)
   reflections = normalizeReflections(reflections, FALLBACK_REFLECTIONS)
   summary = normalizeSummary(removeUnavailableDisclosure(summary))
+
+  if (cacheSourceKey && cacheExpiresAt && sourceKind !== "text") {
+    await saveQuestionGenerationCache({
+      expiresAt: cacheExpiresAt,
+      factGroundingStatus,
+      factProvider,
+      questions,
+      reflections,
+      routerReason: topicGroundingDecision?.reason ?? null,
+      sourceKey: cacheSourceKey,
+      sourceKind,
+      sourceText: source,
+      summary,
+      useWebSearch: forceTopicWebSearch,
+    })
+  }
 
   await recordQuestionGenerationEvent({
     mode: "generate",

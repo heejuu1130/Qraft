@@ -11,6 +11,7 @@ create table if not exists public.question_generation_events (
   semantic_score_abstract numeric(6, 4),
   fact_provider text,
   fact_grounding_status text,
+  cache_hit boolean not null default false,
   generation_success boolean not null,
   latency_ms integer check (latency_ms is null or latency_ms >= 0),
   error_code text,
@@ -43,6 +44,9 @@ alter table public.question_generation_events
 
 alter table public.question_generation_events
   add column if not exists fact_grounding_status text;
+
+alter table public.question_generation_events
+  add column if not exists cache_hit boolean not null default false;
 
 alter table public.question_generation_events
   add column if not exists admin_label text;

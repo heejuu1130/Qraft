@@ -238,13 +238,17 @@ type PendingSaveState = {
   questionIndex: number
 }
 
-type RestoredResultState = Omit<PendingSaveState, "questionIndex">
+type RestoredResultState = Omit<PendingSaveState, "questionIndex"> & {
+  generatedQuestions?: string[]
+}
 
-const refiningDuration = 3600
+const refiningDuration = 2600
 const refiningStepDuration = refiningDuration / 3
-const finalRevealDuration = 900
-const regenerateDuration = 900
-const regenerateStepDuration = 600
+const finalRevealDuration = 0
+const regenerateDuration = 650
+const regenerateStepDuration = 420
+const slowLoadingNoticeDelayMs = 20000
+const slowLoadingNotice = "조금만 더 다듬고 있습니다."
 const tokenExhaustedCode = "TOKEN_EXHAUSTED"
 const tokenExhaustedMessage =
   "토큰이 다 떨어져서 질문을 생성할 수 없습니다. 금방 관리자의 사비를 들여 채워보도록하겠습니다.."
@@ -252,6 +256,8 @@ const tokenExhaustedNoticeDuration = 1800
 const questionHistoryStorageKey = "qraft:question-history"
 const pendingSaveStorageKey = "qraft:pending-save"
 const currentResultStorageKey = "qraft:current-result"
+const landingVisitSentStorageKey = "qraft:ga-landing-visit-sent"
+const feedbackRatingOptions = [1, 2, 3, 4, 5] as const
 
 const wait = (duration: number) =>
   new Promise<void>((resolve) => {
@@ -270,6 +276,24 @@ const createQuestionApiError = (payload: QuestionErrorPayload, fallbackMessage: 
 const isTokenExhaustedClientError = (error: unknown) =>
   error instanceof Error && (error as Error & { code?: string }).code === tokenExhaustedCode
 
+const fetchQuestionPayload = async <Payload,>(
+  body: Record<string, unknown>,
+  fallbackMessage: string
+) => {
+  const response = await fetch("/api/questions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as QuestionErrorPayload
+    throw createQuestionApiError(payload, fallbackMessage)
+  }
+
+  return (await response.json()) as Payload
+}
+
 const navButtonClass =
   "flex h-10 w-10 items-center justify-center border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.08] text-[#f5dfbd]/55 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-500 hover:border-[#d9ad73]/55 hover:text-[#f5dfbd]/90 focus:outline-none focus-visible:border-[#d9ad73]/70"
 
@@ -287,6 +311,27 @@ const getProfileImageUrl = (user: ReturnType<typeof useAuth>["user"]) => {
 }
 
 const getQuestionKey = (source: string, question: string) => `${source.trim()}::${question.trim()}`
+const getQuestionMemoryKey = (question: string) =>
+  question
+    .replace(/[?？!！.,，。'"“”‘’()\[\]{}:;·…\s]/g, "")
+    .toLowerCase()
+
+const mergeQuestionMemory = (...questionGroups: string[][]) => {
+  const seen = new Set<string>()
+  const merged: string[] = []
+
+  questionGroups.flat().forEach((question) => {
+    const cleanedQuestion = question.trim()
+    const memoryKey = getQuestionMemoryKey(cleanedQuestion)
+
+    if (!cleanedQuestion || !memoryKey || seen.has(memoryKey)) return
+
+    seen.add(memoryKey)
+    merged.push(cleanedQuestion)
+  })
+
+  return merged.slice(-12)
+}
 
 const isUrlLike = (source: string) => {
   try {
@@ -295,6 +340,19 @@ const isUrlLike = (source: string) => {
   } catch {
     return false
   }
+}
+
+const getSourceType = (source: string) => (isUrlLike(source) ? "url" : source.length < 100 ? "topic" : "text")
+
+const getLengthBucket = (value: string) => {
+  const length = Array.from(value.trim()).length
+
+  if (length === 0) return "empty"
+  if (length <= 20) return "1_20"
+  if (length <= 80) return "21_80"
+  if (length <= 300) return "81_300"
+  if (length <= 1200) return "301_1200"
+  return "1201_plus"
 }
 
 const getScopedStorageKey = (key: string, userId?: string) => `${key}:${userId ?? "guest"}`
@@ -358,6 +416,7 @@ export default function Hero() {
   const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [summaryOverflowing, setSummaryOverflowing] = useState(false)
   const [questions, setQuestions] = useState<string[]>([])
+  const [generatedQuestionMemory, setGeneratedQuestionMemory] = useState<string[]>([])
   const [reflections, setReflections] = useState<string[]>([])
   const [errorMessage, setErrorMessage] = useState("")
   const [openReflectionIndexes, setOpenReflectionIndexes] = useState<Set<number>>(() => new Set())
@@ -372,6 +431,8 @@ export default function Hero() {
   const [processSectionActive, setProcessSectionActive] = useState(false)
   const [hideLandingScrollCue, setHideLandingScrollCue] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackRating, setFeedbackRating] = useState<number | null>(null)
+  const [feedbackRatingPreview, setFeedbackRatingPreview] = useState<number | null>(null)
   const [feedbackText, setFeedbackText] = useState("")
   const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus>("idle")
   const [feedbackErrorMessage, setFeedbackErrorMessage] = useState("")
@@ -381,9 +442,23 @@ export default function Hero() {
   const philosophyCardRef = useRef<HTMLDivElement>(null)
   const section3Ref = useRef<HTMLElement>(null)
   const silentSectionRef = useRef<HTMLElement>(null)
+  const ctaSectionRef = useRef<HTMLElement>(null)
   const feedbackWidgetRef = useRef<HTMLDivElement>(null)
+  const landingStartedAtRef = useRef<number | null>(null)
+  const questionInputFocusSentRef = useRef(false)
+  const landingSectionViewSentRef = useRef<Set<string>>(new Set())
   const pendingSaveRestoredRef = useRef(false)
   const step1TimerRef = useRef<number | undefined>(undefined)
+  const slowNoticeTimerRef = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    landingStartedAtRef.current = window.performance.now()
+
+    if (window.sessionStorage.getItem(landingVisitSentStorageKey) === "true") return
+
+    gtag.landingVisit()
+    window.sessionStorage.setItem(landingVisitSentStorageKey, "true")
+  }, [])
 
   useEffect(() => {
     const restoreTimer = window.setTimeout(() => {
@@ -392,6 +467,7 @@ export default function Hero() {
       if (result) {
         setSummary(result.summary)
         setQuestions(result.questions)
+        setGeneratedQuestionMemory(mergeQuestionMemory(result.generatedQuestions ?? [], result.questions))
         setReflections(result.reflections)
         setLastSource(result.source)
         setGenerationState("ready")
@@ -401,6 +477,7 @@ export default function Hero() {
     return () => {
       window.clearTimeout(restoreTimer)
       window.clearTimeout(step1TimerRef.current)
+      window.clearTimeout(slowNoticeTimerRef.current)
     }
   }, [])
   const supabase = useMemo(() => createClient(), [])
@@ -436,6 +513,50 @@ export default function Hero() {
   const displayedSummary = formatSummaryForDisplay(summary)
   const displayedSummaryLines = getSummaryDisplayLines(displayedSummary)
 
+  const getLandingElapsedMs = () =>
+    landingStartedAtRef.current === null
+      ? undefined
+      : Math.max(0, Math.round(window.performance.now() - landingStartedAtRef.current))
+
+  const getExperienceSurface = () =>
+    isReady ? "result" : isLoading ? "loading" : generationState === "error" ? "error" : "landing"
+
+  const trackQuestionInputFocus = () => {
+    if (questionInputFocusSentRef.current) return
+
+    questionInputFocusSentRef.current = true
+    gtag.questionInputFocus({
+      elapsed_ms: getLandingElapsedMs(),
+      signed_in: Boolean(user),
+    })
+  }
+
+  const openLoginPrompt = (context: "nav" | "save_question") => {
+    setFeedbackOpen(false)
+    setShowLogin(true)
+    gtag.loginPromptView({ context })
+  }
+
+  const handleBgmToggle = () => {
+    gtag.bgmToggle({
+      next_state: bgmOn ? "off" : "on",
+      surface: getExperienceSurface(),
+    })
+    toggleBgm()
+  }
+
+  const startSlowLoadingNotice = () => {
+    window.clearTimeout(slowNoticeTimerRef.current)
+    slowNoticeTimerRef.current = window.setTimeout(() => {
+      setLoadingNotice(slowLoadingNotice)
+    }, slowLoadingNoticeDelayMs)
+  }
+
+  const clearSlowLoadingNotice = () => {
+    window.clearTimeout(slowNoticeTimerRef.current)
+    slowNoticeTimerRef.current = undefined
+  }
+
   const resetToIdle = () => {
     window.sessionStorage.removeItem(currentResultStorageKey)
     setLandingIntroPhase("settled")
@@ -444,6 +565,7 @@ export default function Hero() {
   }
 
   const scrollToQuestionInput = () => {
+    gtag.landingCtaClick()
     window.scrollTo({ top: 0, behavior: "smooth" })
     window.setTimeout(() => landingInputRef.current?.focus(), 650)
   }
@@ -483,6 +605,47 @@ export default function Hero() {
       window.clearTimeout(settleTimer)
     }
   }, [isLanding, landingIntroPhase])
+
+  useEffect(() => {
+    if (!isLanding || !("IntersectionObserver" in window)) return
+
+    const sections = [
+      { name: "philosophy", element: philosophySectionRef.current },
+      { name: "process", element: section3Ref.current },
+      { name: "silent_record", element: silentSectionRef.current },
+      { name: "final_cta", element: ctaSectionRef.current },
+    ].filter((section): section is { name: string; element: HTMLElement } => section.element !== null)
+
+    if (sections.length === 0) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const section = sections.find((item) => item.element === entry.target)
+
+          if (!section || landingSectionViewSentRef.current.has(section.name)) return
+          if (!entry.isIntersecting || entry.intersectionRatio < 0.28) return
+
+          landingSectionViewSentRef.current.add(section.name)
+          gtag.landingSectionView({
+            section: section.name,
+            elapsed_ms:
+              landingStartedAtRef.current === null
+                ? undefined
+                : Math.max(0, Math.round(window.performance.now() - landingStartedAtRef.current)),
+          })
+        })
+      },
+      {
+        rootMargin: "-12% 0px -22% 0px",
+        threshold: [0, 0.28, 0.52],
+      }
+    )
+
+    sections.forEach(({ element }) => observer.observe(element))
+
+    return () => observer.disconnect()
+  }, [isLanding])
 
   useEffect(() => {
     if (!isLanding) return
@@ -691,10 +854,11 @@ export default function Hero() {
         source: lastSource,
         summary,
         questions,
+        generatedQuestions: generatedQuestionMemory,
         reflections,
       } satisfies RestoredResultState)
     )
-  }, [isReady, lastSource, questions, reflections, summary])
+  }, [generatedQuestionMemory, isReady, lastSource, questions, reflections, summary])
 
   useEffect(() => {
     const summaryElement = summaryRef.current
@@ -712,7 +876,9 @@ export default function Hero() {
   const generateQuestions = async (source: string) => {
     gtag.questionGenerateRequest({
       signed_in: Boolean(user),
-      source_type: isUrlLike(source) ? "url" : source.length < 100 ? "topic" : "text",
+      source_type: getSourceType(source),
+      source_length_bucket: getLengthBucket(source),
+      elapsed_ms: getLandingElapsedMs(),
     })
     setLoadingStep(0)
     setLoadingNotice("")
@@ -720,6 +886,7 @@ export default function Hero() {
     setSummaryExpanded(false)
     setSummaryOverflowing(false)
     setQuestions([])
+    setGeneratedQuestionMemory([])
     setReflections([])
     setErrorMessage("")
     setOpenReflectionIndexes(new Set())
@@ -727,39 +894,35 @@ export default function Hero() {
     setGenerationState("loading")
 
     step1TimerRef.current = window.setTimeout(() => setLoadingStep(1), refiningStepDuration)
+    startSlowLoadingNotice()
 
     try {
-      const payloadPromise = fetch("/api/questions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source }),
-      }).then(async (response) => {
-        if (!response.ok) {
-          const payload = (await response.json().catch(() => ({}))) as QuestionErrorPayload
-          throw createQuestionApiError(payload, "Question API request failed")
-        }
-        return (await response.json()) as QuestionPayload
-      })
+      const payloadPromise = fetchQuestionPayload<QuestionPayload>({ source }, "Question API request failed")
 
       const [payload] = await Promise.all([payloadPromise, wait(refiningDuration)])
 
       window.clearTimeout(step1TimerRef.current)
+      clearSlowLoadingNotice()
       setLoadingStep(2)
       await wait(finalRevealDuration)
 
       setSummary(payload.summary)
       setQuestions(payload.questions)
+      setGeneratedQuestionMemory(mergeQuestionMemory(payload.questions))
       setReflections(payload.reflections)
       await saveHistory(source, payload)
       setLoadingNotice("")
       setGenerationState("ready")
       gtag.questionGenerateSuccess({
         signed_in: Boolean(user),
+        source_type: getSourceType(source),
+        source_length_bucket: getLengthBucket(source),
         question_count: payload.questions.length,
         reflection_count: payload.reflections.length,
       })
     } catch (error) {
       window.clearTimeout(step1TimerRef.current)
+      clearSlowLoadingNotice()
       console.error(error)
       const isTokenExhausted = isTokenExhaustedClientError(error)
 
@@ -778,13 +941,18 @@ export default function Hero() {
             : "사유의 흐름이 잠시 끊겼습니다. 다시 한번 텍스트를 직조합니다."
       )
       setGenerationState("error")
-      gtag.questionGenerateFailure({ signed_in: Boolean(user) })
+      gtag.questionGenerateFailure({
+        signed_in: Boolean(user),
+        source_type: getSourceType(source),
+        source_length_bucket: getLengthBucket(source),
+      })
     }
   }
 
   const runRegenerate = async () => {
     if (!summary) return
 
+    const previousQuestions = mergeQuestionMemory(generatedQuestionMemory, questions)
     gtag.questionRegenerateRequest()
     setLoadingStep(0)
     setLoadingNotice("")
@@ -795,27 +963,25 @@ export default function Hero() {
     setGenerationState("loading")
 
     step1TimerRef.current = window.setTimeout(() => setLoadingStep(1), regenerateStepDuration)
+    startSlowLoadingNotice()
 
     try {
-      const payloadPromise = fetch("/api/questions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: lastSource, summary }),
-      }).then(async (response) => {
-        if (!response.ok) {
-          const payload = (await response.json().catch(() => ({}))) as QuestionErrorPayload
-          throw createQuestionApiError(payload, "Regenerate API request failed")
-        }
-        return (await response.json()) as { questions: string[]; reflections: string[] }
-      })
+      const payloadPromise = fetchQuestionPayload<{ questions: string[]; reflections: string[] }>(
+        { source: lastSource, summary, previousQuestions },
+        "Regenerate API request failed"
+      )
 
       const [payload] = await Promise.all([payloadPromise, wait(regenerateDuration)])
 
       window.clearTimeout(step1TimerRef.current)
+      clearSlowLoadingNotice()
       setLoadingStep(2)
       await wait(finalRevealDuration)
 
       setQuestions(payload.questions)
+      setGeneratedQuestionMemory((currentQuestions) =>
+        mergeQuestionMemory(previousQuestions, currentQuestions, payload.questions)
+      )
       setReflections(payload.reflections)
       setLoadingNotice("")
       setGenerationState("ready")
@@ -825,6 +991,7 @@ export default function Hero() {
       })
     } catch (error) {
       window.clearTimeout(step1TimerRef.current)
+      clearSlowLoadingNotice()
       console.error(error)
       const isTokenExhausted = isTokenExhaustedClientError(error)
 
@@ -897,6 +1064,11 @@ export default function Hero() {
   }
 
   const handleExampleTopic = (topic: string) => {
+    gtag.exampleTopicSelect({
+      topic_index: exampleTopics.indexOf(topic) + 1,
+      elapsed_ms: getLandingElapsedMs(),
+    })
+
     if (landingInputRef.current) {
       landingInputRef.current.value = topic
       landingInputRef.current.focus()
@@ -909,6 +1081,10 @@ export default function Hero() {
 
       if (nextOpen) {
         setShowLogin(false)
+        gtag.feedbackOpen({
+          surface: getExperienceSurface(),
+          signed_in: Boolean(user),
+        })
       }
 
       return nextOpen
@@ -940,8 +1116,19 @@ export default function Hero() {
     event.preventDefault()
 
     const message = feedbackText.trim()
+    const hasRating = feedbackRating !== null
 
-    if (message.length < 2 || feedbackStatus === "sending") {
+    if (feedbackStatus === "sending") {
+      return
+    }
+
+    if (!hasRating && message.length === 0) {
+      setFeedbackErrorMessage("별점 또는 코멘트를 남겨주세요.")
+      setFeedbackStatus("error")
+      return
+    }
+
+    if (message.length === 1) {
       setFeedbackErrorMessage("코멘트는 2자 이상 남겨주세요.")
       setFeedbackStatus("error")
       return
@@ -955,25 +1142,44 @@ export default function Hero() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message,
+          message: message || null,
+          rating: feedbackRating,
           pagePath: `${window.location.pathname}${window.location.search}`,
         }),
       })
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { message?: string }
+        const payload = (await response.json().catch(() => ({}))) as { message?: string; code?: string }
+        gtag.feedbackSubmitFailure({
+          rating: feedbackRating,
+          has_message: Boolean(message),
+          message_length_bucket: getLengthBucket(message),
+          error_code: payload.code ?? "unknown",
+        })
         setFeedbackErrorMessage(payload.message ?? "지금은 기록하지 못했습니다. 잠시 후 다시 남겨주세요.")
         setFeedbackStatus("error")
         return
       }
     } catch (error) {
       console.error(error)
+      gtag.feedbackSubmitFailure({
+        rating: feedbackRating,
+        has_message: Boolean(message),
+        message_length_bucket: getLengthBucket(message),
+        error_code: "network_error",
+      })
       setFeedbackErrorMessage("네트워크 연결을 확인한 뒤 다시 남겨주세요.")
       setFeedbackStatus("error")
       return
     }
 
+    gtag.feedbackSubmitSuccess({
+      rating: feedbackRating,
+      has_message: Boolean(message),
+      message_length_bucket: getLengthBucket(message),
+    })
     setFeedbackText("")
+    setFeedbackRating(null)
     setFeedbackStatus("sent")
   }
 
@@ -998,7 +1204,7 @@ export default function Hero() {
           questionIndex,
         } satisfies PendingSaveState)
       )
-      setShowLogin(true)
+      openLoginPrompt("save_question")
       return
     }
 
@@ -1079,6 +1285,7 @@ export default function Hero() {
         setLastSource(pendingSave.source)
         setSummary(pendingSave.summary)
         setQuestions(pendingSave.questions)
+        setGeneratedQuestionMemory(mergeQuestionMemory(pendingSave.questions))
         setReflections(pendingSave.reflections)
         setSummaryExpanded(false)
         setOpenReflectionIndexes(new Set())
@@ -1091,6 +1298,7 @@ export default function Hero() {
             source: pendingSave.source,
             summary: pendingSave.summary,
             questions: pendingSave.questions,
+            generatedQuestions: pendingSave.questions,
             reflections: pendingSave.reflections,
           } satisfies RestoredResultState)
         )
@@ -1140,6 +1348,13 @@ export default function Hero() {
   }, [supabase, user])
 
   const toggleReflection = (index: number) => {
+    const expanded = !openReflectionIndexes.has(index)
+
+    gtag.resultReflectionToggle({
+      expanded,
+      question_index: index + 1,
+    })
+
     setOpenReflectionIndexes((currentIndexes) => {
       const nextIndexes = new Set(currentIndexes)
 
@@ -1151,6 +1366,17 @@ export default function Hero() {
 
       return nextIndexes
     })
+  }
+
+  const toggleSummaryExpanded = () => {
+    const nextExpanded = !summaryExpanded
+
+    gtag.resultSummaryToggle({
+      expanded: nextExpanded,
+      summary_length_bucket: getLengthBucket(summary),
+    })
+
+    setSummaryExpanded(nextExpanded)
   }
 
   return (
@@ -1198,8 +1424,7 @@ export default function Hero() {
           <button
             type="button"
             onClick={() => {
-              setFeedbackOpen(false)
-              setShowLogin(true)
+              openLoginPrompt("nav")
             }}
             className="h-10 border border-[#d9ad73]/25 bg-[#f5dfbd]/[0.08] px-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#f5dfbd]/60 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-500 hover:border-[#d9ad73]/55 hover:text-[#f5dfbd]/90 focus:outline-none"
           >
@@ -1333,6 +1558,72 @@ export default function Hero() {
                 </p>
 
                 <form onSubmit={handleFeedbackSubmit} className="mt-4">
+                  <fieldset className="mb-4">
+                    <legend className="mb-2 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/42">
+                      Rating
+                    </legend>
+                    <div
+                      className="flex items-center gap-1.5"
+                      role="radiogroup"
+                      aria-label="서비스 별점"
+                      onPointerLeave={() => setFeedbackRatingPreview(null)}
+                    >
+                      {feedbackRatingOptions.map((rating) => {
+                        const previewRating = feedbackRatingPreview ?? feedbackRating
+                        const selected = previewRating !== null && rating <= previewRating
+                        const previewed = feedbackRatingPreview !== null && rating <= feedbackRatingPreview
+
+                        return (
+                          <button
+                            key={rating}
+                            type="button"
+                            role="radio"
+                            aria-checked={feedbackRating === rating}
+                            aria-label={`${rating}점`}
+                            onFocus={() => setFeedbackRatingPreview(rating)}
+                            onBlur={() => setFeedbackRatingPreview(null)}
+                            onPointerEnter={() => setFeedbackRatingPreview(rating)}
+                            onClick={() => {
+                              setFeedbackRating(rating)
+                              setFeedbackRatingPreview(null)
+                              gtag.feedbackRatingSelect({
+                                rating,
+                                surface: getExperienceSurface(),
+                              })
+                              if (feedbackStatus !== "idle") {
+                                setFeedbackStatus("idle")
+                                setFeedbackErrorMessage("")
+                              }
+                            }}
+                            className={`qraft-rating-star-button ${previewed ? "qraft-rating-star-button-preview" : ""} flex h-8 w-8 items-center justify-center rounded-full border transition-all duration-300 focus:outline-none focus-visible:border-[#efd3a2]/70 ${
+                              selected
+                                ? "border-[#efd3a2]/42 bg-[#f5dfbd]/[0.1] text-[#efd3a2]/88"
+                                : "border-[#d9ad73]/16 bg-[#080403]/24 text-[#f5dfbd]/26 hover:border-[#d9ad73]/34 hover:text-[#f5dfbd]/54"
+                            }`}
+                            style={{ "--rating-star-delay": `${(rating - 1) * 34}ms` } as CSSProperties}
+                          >
+                            <svg
+                              className="qraft-rating-star-icon"
+                              width="17"
+                              height="17"
+                              viewBox="0 0 24 24"
+                              fill={selected ? "currentColor" : "none"}
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="M12 3.75L14.45 8.71L19.93 9.5L15.96 13.37L16.9 18.82L12 16.24L7.1 18.82L8.04 13.37L4.07 9.5L9.55 8.71L12 3.75Z"
+                                stroke="currentColor"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="1.55"
+                              />
+                            </svg>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </fieldset>
+
                   <textarea
                     value={feedbackText}
                     onChange={(event) => {
@@ -1344,7 +1635,7 @@ export default function Hero() {
                     }}
                     maxLength={1200}
                     rows={5}
-                    placeholder="작성하신 내용은 관리자에게 전달됩니다."
+                    placeholder={"작성하신 내용은 관리자에게 전달됩니다.\n별점만 남겨주셔도 큰 힘이 됩니다."}
                     className="min-h-32 w-full resize-none border border-[#d9ad73]/20 bg-[#080403]/32 px-4 py-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/48 focus:bg-[#080403]/44"
                   />
 
@@ -1354,7 +1645,11 @@ export default function Hero() {
                     </span>
                     <button
                       type="submit"
-                      disabled={feedbackStatus === "sending" || feedbackText.trim().length < 2}
+                      disabled={
+                        feedbackStatus === "sending" ||
+                        (feedbackRating === null && feedbackText.trim().length === 0) ||
+                        feedbackText.trim().length === 1
+                      }
                       className="rounded-full border border-[#d9ad73]/28 bg-[#f5dfbd]/[0.08] px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.15em] text-[#f5dfbd]/68 transition-colors duration-300 hover:border-[#efd3a2]/56 hover:bg-[#f5dfbd]/[0.13] hover:text-[#fff4dc] disabled:cursor-not-allowed disabled:border-[#d9ad73]/12 disabled:text-[#f5dfbd]/28"
                     >
                       {feedbackStatus === "sending" ? "기록 중" : "남기기"}
@@ -1410,7 +1705,7 @@ export default function Hero() {
 
         <button
           type="button"
-          onClick={toggleBgm}
+          onClick={handleBgmToggle}
           aria-label={bgmOn ? "BGM 끄기" : "BGM 켜기"}
           className={navButtonClass}
         >
@@ -1567,6 +1862,7 @@ export default function Hero() {
                       type="text"
                       name="source"
                       placeholder="링크 또는 주제를 입력해주세요"
+                      onFocus={trackQuestionInputFocus}
                       className="h-12 rounded-none border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.16] px-4 text-lg font-normal text-[#f5dfbd]/90 shadow-[0_10px_30px_rgba(13,8,5,0.32)] outline-none backdrop-blur-md transition-colors duration-700 placeholder:text-[#efd3a2]/70 focus:border-[#d9ad73]/55 focus:bg-[#f5dfbd]/[0.19] [&::placeholder]:text-sm"
                     />
                   </label>
@@ -1779,8 +2075,8 @@ export default function Hero() {
               </div>
             </section>
 
-            <section className="w-full px-6 pb-20 pt-0 sm:pb-24">
-              <div className="mx-auto flex w-full max-w-4xl justify-center">
+            <section ref={ctaSectionRef} className="w-full px-6 pb-[64px] pt-0 sm:pb-[22px]">
+              <div className="mx-auto flex w-full max-w-4xl flex-col items-center justify-center">
                 <button
                   type="button"
                   onClick={scrollToQuestionInput}
@@ -1788,6 +2084,20 @@ export default function Hero() {
                 >
                   질문하러 가기
                 </button>
+                <p
+                  className="mt-16 text-center font-mono text-[10px] font-medium leading-none tracking-normal text-[#f5dfbd]/32 sm:mt-20 sm:text-[11px]"
+                  style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
+                >
+                  BGM:{" "}
+                  <a
+                    href="https://youtu.be/5gO0xpY_Y3E?si=JNe5aJr4ZF0FC_sG"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="transition-colors duration-300 hover:text-[#f5dfbd]/52 focus:outline-none focus-visible:text-[#f5dfbd]/64"
+                  >
+                    Hans Zimmer - First Step (Cover by dhe Perissann)
+                  </a>
+                </p>
               </div>
             </section>
           </>
@@ -1857,7 +2167,7 @@ export default function Hero() {
                 {summaryOverflowing && (
                   <button
                     type="button"
-                    onClick={() => setSummaryExpanded((expanded) => !expanded)}
+                    onClick={toggleSummaryExpanded}
                     className="mt-3 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/55 transition-colors duration-300 hover:text-[#f5dfbd]/80 focus:outline-none"
                   >
                     {summaryExpanded ? "접기" : "펼치기"}

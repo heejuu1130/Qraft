@@ -3,6 +3,7 @@ import { createRouteClient } from "@/lib/supabase/route"
 
 type FeedbackRequestBody = {
   message?: unknown
+  rating?: unknown
   pagePath?: unknown
 }
 
@@ -21,6 +22,14 @@ const getFeedbackError = (error: SupabaseInsertError) => {
       status: 403,
       code: "feedback_permission_denied",
       message: "코멘트 저장 권한 설정을 확인해야 합니다. 잠시 후 다시 남겨주세요.",
+    }
+  }
+
+  if (code === "42703" || code === "PGRST204" || message.includes("column") || message.includes("not-null")) {
+    return {
+      status: 503,
+      code: "feedback_schema_outdated",
+      message: "별점 저장을 위해 Supabase SQL을 먼저 적용해야 합니다.",
     }
   }
 
@@ -57,8 +66,27 @@ export async function POST(request: Request) {
   }
 
   const message = typeof body.message === "string" ? body.message.trim() : ""
+  const hasRatingValue = body.rating !== undefined && body.rating !== null
+  const rating =
+    typeof body.rating === "number" && Number.isInteger(body.rating) && body.rating >= 1 && body.rating <= 5
+      ? body.rating
+      : null
 
-  if (message.length < 2 || message.length > 1200) {
+  if (hasRatingValue && rating === null) {
+    return NextResponse.json(
+      { message: "별점은 1점부터 5점까지 선택해 주세요.", code: "invalid_feedback_rating" },
+      { status: 400 }
+    )
+  }
+
+  if (!message && rating === null) {
+    return NextResponse.json(
+      { message: "별점 또는 코멘트를 남겨주세요.", code: "empty_feedback" },
+      { status: 400 }
+    )
+  }
+
+  if (message.length > 0 && (message.length < 2 || message.length > 1200)) {
     return NextResponse.json(
       { message: "코멘트는 2자 이상 1200자 이하로 남겨주세요.", code: "invalid_feedback_message" },
       { status: 400 }
@@ -74,7 +102,8 @@ export async function POST(request: Request) {
 
   const { error } = await supabase.from("user_feedback").insert({
     user_id: user?.id ?? null,
-    message,
+    message: message || null,
+    rating,
     page_path: pagePath,
     user_agent: userAgent,
   })

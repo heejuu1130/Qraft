@@ -31,6 +31,10 @@ export const gtag = {
     send("question_regenerate_success", params),
   questionRegenerateFailure: () => send("question_regenerate_failure"),
   tokenExhausted: (params?: Record<string, unknown>) => send("token_exhausted", params),
+  questionInputFocus: (params?: Record<string, unknown>) => send("question_input_focus", params),
+  landingCtaClick: () => send("landing_cta_click"),
+  landingSectionView: (params?: Record<string, unknown>) => send("landing_section_view", params),
+  exampleTopicSelect: (params?: Record<string, unknown>) => send("example_topic_select", params),
   loginStart: (provider: LoginProvider) => {
     send("login_start", { method: provider })
     if (typeof window === "undefined") return
@@ -40,9 +44,20 @@ export const gtag = {
     send("login", { method: provider })
     send("login_success", { method: provider })
   },
+  loginPromptView: (params?: Record<string, unknown>) => send("login_prompt_view", params),
   questionSaveIntent: (params?: Record<string, unknown>) => send("question_save_intent", params),
   questionSave: (params?: Record<string, unknown>) => send("question_save", params),
   questionUnsave: (params?: Record<string, unknown>) => send("question_unsave", params),
+  landingVisit: () => send("landing_visit"),
+  resultSummaryToggle: (params?: Record<string, unknown>) => send("result_summary_toggle", params),
+  resultReflectionToggle: (params?: Record<string, unknown>) => send("result_reflection_toggle", params),
+  feedbackOpen: (params?: Record<string, unknown>) => send("feedback_open", params),
+  feedbackRatingSelect: (params?: Record<string, unknown>) => send("feedback_rating_select", params),
+  feedbackSubmitSuccess: (params?: Record<string, unknown>) => send("feedback_submit_success", params),
+  feedbackSubmitFailure: (params?: Record<string, unknown>) => send("feedback_submit_failure", params),
+  bgmToggle: (params?: Record<string, unknown>) => send("bgm_toggle", params),
+  profileTabSelect: (params?: Record<string, unknown>) => send("profile_tab_select", params),
+  profileHistoryToggle: (params?: Record<string, unknown>) => send("profile_history_toggle", params),
   profileHistoryView: () => send("profile_history_view"),
   returningVisit: () => send("returning_visit"),
 }

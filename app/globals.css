@@ -246,6 +246,35 @@ body {
   text-shadow: 0 0 0 rgb(237 244 235 / 0);
 }
 
+.qraft-rating-star-button {
+  transform: translateZ(0);
+}
+
+.qraft-rating-star-icon {
+  filter: drop-shadow(0 0 0 rgb(239 211 162 / 0));
+  transform-origin: center;
+  transition:
+    filter 260ms ease,
+    transform 260ms cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.qraft-rating-star-button:active .qraft-rating-star-icon {
+  transform: scale(0.9);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .qraft-rating-star-button:hover,
+  .qraft-rating-star-button:focus-visible {
+    transform: translateY(-1px);
+  }
+
+  .qraft-rating-star-button-preview .qraft-rating-star-icon,
+  .qraft-rating-star-button:focus-visible .qraft-rating-star-icon {
+    animation: qraft-rating-star-hover 520ms cubic-bezier(0.19, 1, 0.22, 1) var(--rating-star-delay, 0ms);
+    filter: drop-shadow(0 0 12px rgb(239 211 162 / 0.28));
+  }
+}
+
 .qraft-silent-quote-active .qraft-silent-character {
   animation: qraft-silent-character-glow var(--silent-flow-cycle) linear var(--character-delay, 0ms) infinite;
 }
@@ -273,13 +302,6 @@ body {
 @media (min-width: 640px) {
   .qraft-ready-card {
     max-height: none;
-  }
-
-  .qraft-reflection {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
-    overflow: hidden;
   }
 }
 
@@ -417,6 +439,24 @@ body {
     text-shadow:
       0 0 18px rgb(237 244 235 / 0.26),
       0 0 42px rgb(237 244 235 / 0.12);
+  }
+}
+
+@keyframes qraft-rating-star-hover {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+
+  44% {
+    transform: scale(1.18) rotate(-8deg);
+  }
+
+  72% {
+    transform: scale(1.08) rotate(4deg);
+  }
+
+  100% {
+    transform: scale(1) rotate(0deg);
   }
 }
 

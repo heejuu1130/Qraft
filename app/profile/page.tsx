@@ -209,7 +209,24 @@ export default function ProfilePage() {
     }
   }, [dataVersion, questionHistoryScopedKey, savedQuestionsScopedKey, supabase, user])
 
+  const handleBgmToggle = () => {
+    gtag.bgmToggle({
+      next_state: bgmOn ? "off" : "on",
+      surface: "profile",
+    })
+    toggleBgm()
+  }
+
+  const selectProfileTab = (tab: ProfileTab) => {
+    gtag.profileTabSelect({ tab })
+    setActiveTab(tab)
+  }
+
   const toggleHistory = (id: string) => {
+    const expanded = !openHistoryIds.has(id)
+
+    gtag.profileHistoryToggle({ expanded })
+
     setOpenHistoryIds((currentIds) => {
       const nextIds = new Set(currentIds)
 
@@ -295,7 +312,7 @@ export default function ProfilePage() {
 
         <button
           type="button"
-          onClick={toggleBgm}
+          onClick={handleBgmToggle}
           aria-label={bgmOn ? "BGM 끄기" : "BGM 켜기"}
           className={navButtonClass}
         >
@@ -354,7 +371,7 @@ export default function ProfilePage() {
         <nav className="mt-7 flex gap-2">
           <button
             type="button"
-            onClick={() => setActiveTab("history")}
+            onClick={() => selectProfileTab("history")}
             className={`h-10 border px-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] transition-colors focus:outline-none ${
               activeTab === "history"
                 ? "border-[#d9ad73]/55 bg-[#f5dfbd]/[0.12] text-[#f5dfbd]/85"
@@ -365,7 +382,7 @@ export default function ProfilePage() {
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab("saved")}
+            onClick={() => selectProfileTab("saved")}
             className={`h-10 border px-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] transition-colors focus:outline-none ${
               activeTab === "saved"
                 ? "border-[#d9ad73]/55 bg-[#f5dfbd]/[0.12] text-[#f5dfbd]/85"

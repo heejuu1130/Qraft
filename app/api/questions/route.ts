@@ -2,20 +2,65 @@ import Anthropic from "@anthropic-ai/sdk"
 import { createRouteClient } from "@/lib/supabase/route"
 
 const client = new Anthropic({ timeout: 30000 })
+const contentCharacterLimit = 8000
+const jinaReaderTimeoutMs = 8000
+const youtubeReaderTimeoutMs = 5000
+const youtubeMetadataTimeoutMs = 5000
+const generationMaxTokens = 1600
+const regenerationMaxTokens = 1200
+const previousQuestionLimit = 8
 
-const PERSONA = `Qraft의 문체:
-- 차분하고 단정한 한국어 문어체를 씁니다.
-- 모호한 감상보다 핵심 쟁점, 태도, 전제를 정확히 짚습니다.
-- 어려운 단어는 필요할 때만 쓰고, 질문은 자연스럽게 읽혀야 합니다.`
+const PERSONA = `Qraft의 브랜드 톤:
+- Qraft는 정답을 검사하지 않고, 사유가 시작되는 정확한 입구를 설계합니다.
+- 문체는 차분하고 단정합니다. 멋을 부리기보다 핵심 긴장, 전제, 선택의 기준을 선명하게 드러냅니다.
+- 질문은 사용자에게 숙제를 내는 말투가 아니라, 사용자가 자기 생각을 열어볼 수 있게 건네는 문장이어야 합니다.
+- 좋은 질문은 넓고 추상적인 말보다, 사용자가 붙잡을 수 있는 구체적인 기준 하나를 남깁니다.`
+
+const QUESTION_DESIGN_RULES = `질문 설계:
+- 정확히 3개의 질문을 생성합니다.
+- 질문은 콘텐츠 자체의 감상평을 묻지 말고, 내용에서 나온 고민할 만한 주제를 묻습니다.
+- 질문만 읽어도 무엇을 생각해야 하는지 바로 떠올라야 합니다. 멋있는 문장보다 선명한 사고의 입구를 우선합니다.
+- 질문은 답을 하나로 닫지 않되, 너무 넓은 인생 질문으로 흐르지 않습니다. 입력 주제의 핵심 명사, 선택, 긴장, 관점 차이 중 하나를 반드시 붙잡습니다.
+- "왜 중요한가요?", "어떤 의미가 있나요?", "우리는 어떤 태도를 가져야 할까요?"처럼 어디에나 붙는 질문은 피합니다.
+- 예/아니오로 끝나는 질문, 개념 정의를 묻는 질문, 단순 정보 확인 질문은 피합니다.
+- "이 영상", "이 글", "이 인터뷰"라는 표현은 질문에 쓰지 않습니다.
+- 짧은 주제만 입력된 경우 질문은 너무 일반적인 인생 질문으로 흐르지 말고, 입력 주제의 긴장, 선택, 관점 차이를 묻습니다.
+- 1번 질문은 쉽지만 가볍지 않은 첫 질문입니다. 사용자가 바로 답을 시작할 수 있어야 하며, 동시에 주제의 핵심 긴장으로 들어가는 문이어야 합니다.
+- 1번 질문은 단순 취향, 감상, 경험담을 묻지 말고, 사용자가 먼저 구분해야 할 기준, 선택해야 할 입장, 놓치기 쉬운 장면 중 하나를 묻습니다.
+- 2번 질문은 핵심 쟁점 질문입니다. 대상 안의 전제, 갈등, 대가, 기준의 충돌 중 하나를 묻습니다.
+- 3번 질문은 확장 질문입니다. 그 생각을 받아들였을 때 개인, 관계, 사회, 시간의 감각이 어떻게 달라지는지 오래 생각하게 묻습니다.
+- 1번에서 3번으로 갈수록 더 깊어지되, 세 질문 모두 쉬운 한국어 한 문장으로 씁니다.
+- 질문의 끝맺음은 정답을 확인받는 느낌의 "~인가요?", "~한가요?"보다 사유를 열어두는 "~일까요?", "~할까요?", "~달라질까요?", "~있을까요?"를 우선합니다.
+- "무엇인가요?", "충분히 타당한가요?"처럼 시험 문제나 평가처럼 들리는 어투는 피합니다.
+- 질문은 자연스러워야 하며, 문학적 수사를 과하게 쓰지 않습니다.`
+
+const REFLECTION_DESIGN_RULES = `고찰 설계:
+- reflections는 각 질문에 붙는 타인의 고찰 예시입니다.
+- reflections는 정확히 3개이며, 각 항목은 보통 4개의 짧은 줄로 씁니다.
+- 3줄도 허용하지만, 3줄에서 갑자기 끊긴 느낌이 나면 안 됩니다. 전제, 비틀기, 여운이 모두 자연스럽게 닫힐 때만 3줄로 끝냅니다.
+- 5줄은 생각의 층이 하나 더 필요할 때만 씁니다.
+- 각 줄은 완성된 한 문장 또는 한 호흡이어야 하며, 문장 중간에서 끊지 않습니다.
+- 줄바꿈은 JSON 문자열 안의 \\n으로 표현합니다.
+- reflections는 질문에 대한 정답이나 해설이 아니라, 사유하는 사람이 남긴 잠정적 메모처럼 씁니다.
+- 첫 줄은 질문의 표면적 답을 반복하지 말고, 그 질문이 건드리는 전제나 긴장을 짚습니다.
+- 중간 줄에는 익숙한 관점을 한 번 비틀거나, 사용자가 놓치기 쉬운 대가, 역설, 침묵, 반대편의 합리성을 보여줍니다.
+- 마지막 줄은 결론을 닫지 말고, 더 생각하고 싶어지는 여운이나 다음 물음으로 끝냅니다.
+- "필요가 있다", "때문이다", "해야 한다", "중요하다"처럼 결론을 닫는 종결을 피합니다.
+- "처럼 보입니다", "일지도 모릅니다", "생각해볼 수 있습니다", "묻게 됩니다", "남습니다" 같은 열린 종결을 자연스럽게 섞습니다.
+- 일부 고찰은 허를 찌르는 관점을 담되, 과장된 역설이나 냉소, 단정적인 훈계로 보이지 않게 합니다.
+- 판단을 확정하기보다 전제, 긴장, 가능성, 망설임을 드러냅니다.`
 
 const SYSTEM_PROMPT = [
   PERSONA,
   `당신은 Qraft입니다. 입력된 링크 본문이나 주제를 바탕으로 짧은 요약, 질문 3개, 각 질문의 고찰 예시를 한국어로 생성합니다.
 
 규칙:
+- 반드시 summary, questions, reflections 세 키를 모두 가진 JSON 객체 하나를 반환합니다.
+- questions 배열만 단독으로 반환하지 않습니다.
 - summary는 최대 6줄입니다.
+- summary는 기본적으로 5~6줄로 씁니다. 너무 짧게 끝내지 않습니다.
 - summary의 첫 3줄은 핵심 문장 3개입니다. 번호나 bullet을 붙이지 않습니다.
-- summary의 4~6줄은 필요할 때만 1~3번 구조화 요약으로 씁니다.
+- summary의 4~6줄은 1~3번 구조화 요약으로 씁니다. 입력이 매우 짧아 구조화가 어색한 경우에만 생략합니다.
 - summary에서 핵심 문장 3개 다음에 1. 쟁점이 이어질 경우, 그 사이에 반드시 빈 줄을 한 줄 넣습니다.
 - summary 형식:
   핵심 문장 1
@@ -25,27 +70,15 @@ const SYSTEM_PROMPT = [
   1. 쟁점: 한 문장
   2. 변화: 한 문장
   3. 생각할 점: 한 문장
-- summary는 링크/긴 텍스트라면 핵심 주장과 맥락을, 짧은 주제라면 바라볼 관점을 요약합니다.
+- 링크/긴 텍스트는 핵심 주장과 맥락을, 짧은 주제는 바라볼 관점을 요약합니다.
 - 사용자 입력 원문에 있는 주제어를 잃지 말고, 참고 내용이 검색 결과일 때는 검색 결과의 잡음이나 광고성 문구를 핵심으로 삼지 않습니다.
 - 링크 본문이나 검색 결과가 부족하면 모르는 사실을 꾸며내지 말고, 입력된 단어에서 직접 출발한 관점 중심 요약과 질문을 만듭니다.
 - 유튜브 링크에서 영상 제목이나 채널 정보만 확보된 경우, 제목에서 드러나는 주제와 관점으로 요약과 질문을 만들되 "영상을 확인할 수 없습니다", "내용을 요약하기 어렵습니다", "일반적 맥락" 같은 한계 설명을 출력하지 않습니다.
+- 유튜브 제목이나 채널 정보만 확보된 경우, 제목에 없는 작품 배경, 악기, 제작 의도, 인물 관계, 사건을 사실처럼 추가 추정하지 않습니다.
 - 참고 내용에 없는 실존 인물의 이력, 사건, 수치, 소속, 작품명은 추가하지 않습니다.
-- URL, 출처 표기, 검색 결과 문구, "Title:", "URL:", "Markdown Content:" 같은 수집 메타데이터를 출력에 포함하지 않습니다.
-- 정확히 3개의 질문을 생성합니다.
-- 질문은 콘텐츠 자체의 감상평을 묻지 말고, 내용에서 나온 고민할 만한 주제를 묻습니다.
-- "이 영상", "이 글", "이 인터뷰"라는 표현은 질문에 쓰지 않습니다.
-- 짧은 주제만 입력된 경우 질문은 너무 일반적인 인생 질문으로 흐르지 말고, 입력 주제의 긴장, 선택, 관점 차이를 묻습니다.
-- 1번 질문은 쉽고 짧은 진입 질문입니다.
-- 2번 질문은 핵심 쟁점을 이해했는지 묻는 보통 난이도 질문입니다.
-- 3번 질문은 더 오래 생각해야 하는 깊은 질문입니다.
-- 질문은 자연스러워야 하며, 문학적 수사를 과하게 쓰지 않습니다.
-- reflections는 각 질문에 대한 가능한 고찰 예시입니다.
-- reflections는 정확히 3개이며, 각 항목은 2문장 이내, 한국어 기준 90자 안팎으로 씁니다.
-- reflections는 질문에 대한 정답이나 해설이 아니라, 사유하는 사람이 남긴 잠정적 메모처럼 씁니다.
-- reflections는 "필요가 있다", "때문이다", "해야 한다", "중요하다"처럼 결론을 닫는 종결을 피합니다.
-- reflections는 "처럼 보입니다", "일지도 모릅니다", "생각해볼 수 있습니다", "묻게 됩니다", "남습니다" 같은 열린 종결을 자연스럽게 섞습니다.
-- reflections는 판단을 확정하기보다 전제, 긴장, 가능성, 망설임을 드러냅니다.
-- reflections는 전체가 의문문으로만 보이지 않게 하되, 마지막 문장은 닫힌 결론보다 여운이나 다음 질문으로 끝냅니다.
+- URL, 출처 표기, 검색 결과 문구, "Title:", "URL:", "Markdown Content:" 같은 수집 메타데이터를 출력하지 않습니다.
+${QUESTION_DESIGN_RULES}
+${REFLECTION_DESIGN_RULES}
 - 실존 인물, 포지션, 기록, 소속 등 구체적 사실은 입력된 텍스트에 명시된 경우에만 사용합니다. 입력에 없는 사실은 추가하지 않습니다.
 - 짧은 주제(인물명, 키워드 등)만 입력된 경우, 그 주제를 둘러싼 관점과 질문에 집중하며 검증되지 않은 사실을 단정하지 않습니다.
 - 반드시 JSON 객체 형식으로만 반환합니다: {"summary":"요약 또는 관점 설명","questions":["질문1","질문2","질문3"],"reflections":["1번 질문 고찰","2번 질문 고찰","3번 질문 고찰"]}
@@ -59,20 +92,12 @@ const REGENERATE_SYSTEM_PROMPT = [
   `당신은 Qraft입니다. 입력된 요약을 바탕으로 기존과 다른 새로운 질문 3개와 각 질문의 고찰 예시를 한국어로 생성합니다.
 
 규칙:
-- 정확히 3개의 질문을 생성합니다.
-- 질문은 콘텐츠 자체의 감상평을 묻지 말고, 내용에서 나온 고민할 만한 주제를 묻습니다.
-- "이 영상", "이 글", "이 인터뷰"라는 표현은 질문에 쓰지 않습니다.
-- 1번 질문은 쉽고 짧은 진입 질문입니다.
-- 2번 질문은 핵심 쟁점을 이해했는지 묻는 보통 난이도 질문입니다.
-- 3번 질문은 더 오래 생각해야 하는 깊은 질문입니다.
-- 질문은 자연스러워야 하며, 문학적 수사를 과하게 쓰지 않습니다.
-- reflections는 각 질문에 대한 가능한 고찰 예시입니다.
-- reflections는 정확히 3개이며, 각 항목은 2문장 이내, 한국어 기준 90자 안팎으로 씁니다.
-- reflections는 질문에 대한 정답이나 해설이 아니라, 사유하는 사람이 남긴 잠정적 메모처럼 씁니다.
-- reflections는 "필요가 있다", "때문이다", "해야 한다", "중요하다"처럼 결론을 닫는 종결을 피합니다.
-- reflections는 "처럼 보입니다", "일지도 모릅니다", "생각해볼 수 있습니다", "묻게 됩니다", "남습니다" 같은 열린 종결을 자연스럽게 섞습니다.
-- reflections는 판단을 확정하기보다 전제, 긴장, 가능성, 망설임을 드러냅니다.
-- reflections는 전체가 의문문으로만 보이지 않게 하되, 마지막 문장은 닫힌 결론보다 여운이나 다음 질문으로 끝냅니다.
+${QUESTION_DESIGN_RULES}
+- 표면적인 재진술에 머물지 말고, 같은 요약 안에서 다른 각도나 더 선명한 갈등을 찾아 묻습니다.
+- 이전 질문은 반복을 피하기 위한 참고일 뿐입니다. 억지로 새로워 보이려다 핵심 주제에서 멀어지지 않습니다.
+- 이전 질문과 같은 문장, 거의 같은 문장, 표현만 바꾼 질문은 만들지 않습니다.
+- 단, 반복 회피보다 새 질문의 자연스러움과 사유의 밀도를 우선합니다.
+${REFLECTION_DESIGN_RULES}
 - 반드시 JSON 객체 형식으로만 반환합니다: {"questions":["질문1","질문2","질문3"],"reflections":["1번 질문 고찰","2번 질문 고찰","3번 질문 고찰"]}
 - 설명, 부연, 마크다운 없이 JSON 객체만 출력합니다.`,
 ]
@@ -82,6 +107,7 @@ const REGENERATE_SYSTEM_PROMPT = [
 type QuestionRequest = {
   source?: unknown
   summary?: unknown
+  previousQuestions?: unknown
 }
 
 const LINK_PARSE_FAILURE_MESSAGE =
@@ -125,7 +151,7 @@ type YouTubeMetadata = {
 async function fetchYouTubeMetadata(url: string): Promise<YouTubeMetadata | null> {
   const response = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`, {
     headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(youtubeMetadataTimeoutMs),
   })
 
   if (!response.ok) {
@@ -152,7 +178,7 @@ async function fetchYouTubeMetadata(url: string): Promise<YouTubeMetadata | null
   }
 }
 
-async function fetchViaJina(url: string): Promise<string> {
+async function fetchViaJina(url: string, timeoutMs = jinaReaderTimeoutMs): Promise<string> {
   const headers: HeadersInit = {
     Accept: "text/plain",
   }
@@ -163,7 +189,7 @@ async function fetchViaJina(url: string): Promise<string> {
 
   const response = await fetch(`https://r.jina.ai/${url}`, {
     headers,
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(timeoutMs),
   })
 
   if (!response.ok) {
@@ -171,34 +197,12 @@ async function fetchViaJina(url: string): Promise<string> {
   }
 
   const text = await response.text()
-  return text.slice(0, 8000)
-}
-
-async function searchViaJina(query: string): Promise<string> {
-  const headers: HeadersInit = {
-    Accept: "text/plain",
-  }
-
-  if (process.env.JINA_API_KEY) {
-    headers.Authorization = `Bearer ${process.env.JINA_API_KEY}`
-  }
-
-  const response = await fetch(`https://s.jina.ai/${encodeURIComponent(query)}`, {
-    headers,
-    signal: AbortSignal.timeout(6000),
-  })
-
-  if (!response.ok) {
-    throw new Error(`Jina 검색 실패: ${response.status}`)
-  }
-
-  const text = await response.text()
-  return text.slice(0, 8000)
+  return text.slice(0, contentCharacterLimit)
 }
 
 const FALLBACK_QUESTIONS = [
-  "지금 가장 먼저 확인해야 할 쟁점은 무엇인가요?",
-  "이 문제를 바라보는 우리의 전제는 충분히 타당한가요?",
+  "지금 가장 먼저 확인해야 할 쟁점은 무엇일까요?",
+  "이 문제를 바라보는 우리의 전제는 충분히 타당할까요?",
   "이 변화 앞에서 인간이 지켜야 할 태도는 무엇일까요?",
 ]
 
@@ -206,9 +210,9 @@ const FALLBACK_SUMMARY =
   "입력된 내용을 하나의 사유 대상으로 바라보고, 그 안에 숨은 전제와 감정의 방향을 살펴봅니다."
 
 const FALLBACK_REFLECTIONS = [
-  "이 질문은 먼저 대상이 무엇을 말하는지보다, 무엇을 말하지 않는지를 살피게 합니다.",
-  "핵심은 주장 자체보다 그 주장이 기대고 있는 전제를 차분히 확인하는 데 있습니다.",
-  "이 물음은 쉽게 결론을 내리기보다, 우리가 어떤 태도로 이 문제를 응시해야 하는지 묻습니다.",
+  "이 질문은 대상이 무엇을 말하는지보다,\n무엇을 말하지 않는지를 살피게 합니다.\n답은 우리가 당연하게 넘긴 기준 쪽에 남아 있을지도 모릅니다.",
+  "핵심은 주장 자체보다,\n그 주장이 기대고 있는 전제를 확인하는 데 있습니다.\n어쩌면 내가 편하게 받아들인 확신이 더 많은 것을 가리고 있을지도 모릅니다.",
+  "이 물음은 쉽게 결론을 내리기보다,\n우리가 어떤 태도로 이 문제를 응시하는지 묻습니다.\n무엇을 잃지 않으려 하는지 남겨볼 수 있습니다.",
 ]
 
 function normalizeSummary(summary: string) {
@@ -244,24 +248,64 @@ function cleanGeneratedItem(item: string) {
     .trim()
 }
 
+function softenQuestionTone(item: string) {
+  return cleanGeneratedItem(item)
+    .replace(/무엇인가요[?？]$/u, "무엇일까요?")
+    .replace(/누구인가요[?？]$/u, "누구일까요?")
+    .replace(/어디인가요[?？]$/u, "어디일까요?")
+    .replace(/언제인가요[?？]$/u, "언제일까요?")
+    .replace(/왜인가요[?？]$/u, "왜일까요?")
+    .replace(/있는가요[?？]$/u, "있을까요?")
+    .replace(/없는가요[?？]$/u, "없을까요?")
+    .replace(/되는가요[?？]$/u, "될까요?")
+    .replace(/가능한가요[?？]$/u, "가능할까요?")
+    .replace(/타당한가요[?？]$/u, "타당할까요?")
+    .replace(/중요한가요[?？]$/u, "중요할까요?")
+    .replace(/인가요[?？]$/u, "일까요?")
+    .replace(/한가요[?？]$/u, "할까요?")
+}
+
+function cleanReflectionLine(line: string) {
+  return line
+    .replace(/^\s*(?:[-*•]+|\d+[.)])\s*/, "")
+    .replace(/[ \t]+/g, " ")
+    .trim()
+}
+
 function softenReflection(item: string) {
-  const softened = cleanGeneratedItem(item)
+  const cleaned = item
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map(cleanReflectionLine)
+    .filter(Boolean)
+    .join("\n")
+
+  const softened = cleaned
     .replace(/필요가 있다\.?$/u, "필요가 있을지도 모릅니다.")
     .replace(/때문이다\.?$/u, "때문일지도 모릅니다.")
     .replace(/해야 한다\.?$/u, "해야 하는지 묻게 됩니다.")
     .replace(/중요하다\.?$/u, "중요해 보입니다.")
     .replace(/볼 수 있다\.?$/u, "볼 수 있습니다.")
 
-  const sentences = softened.match(/[^.!?。！？]+[.!?。！？]?/gu) ?? [softened]
-  const shortened = sentences.slice(0, 2).join("").trim()
+  const lines = softened
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
 
-  return shortened.length > 120 ? `${shortened.slice(0, 117).trim()}...` : shortened
+  if (lines.length >= 3) {
+    return lines.slice(0, 5).join("\n")
+  }
+
+  const sentences = softened.match(/[^.!?。！？]+[.!?。！？]?/gu) ?? [softened]
+  const shortened = sentences.slice(0, 5).join("").trim()
+
+  return shortened.length > 360 ? `${shortened.slice(0, 357).trim()}...` : shortened
 }
 
 function normalizeList(items: string[], fallback: string[]) {
   return [
     ...items
-      .map(cleanGeneratedItem)
+      .map(softenQuestionTone)
       .filter((item) => item.length > 0 && !isUnavailableDisclosure(item))
       .slice(0, 3),
     ...fallback,
@@ -286,6 +330,81 @@ function getSourceKind(source: string): SourceKind {
   return source.length < 100 ? "topic" : "text"
 }
 
+function normalizeQuestionFingerprint(question: string) {
+  return question
+    .replace(/[?？!！.,，。'"“”‘’()\[\]{}:;·…\s]/g, "")
+    .toLowerCase()
+}
+
+function getQuestionShingles(question: string) {
+  const fingerprint = normalizeQuestionFingerprint(question)
+  const shingles = new Set<string>()
+
+  if (fingerprint.length < 3) {
+    if (fingerprint) shingles.add(fingerprint)
+    return shingles
+  }
+
+  for (let index = 0; index <= fingerprint.length - 3; index += 1) {
+    shingles.add(fingerprint.slice(index, index + 3))
+  }
+
+  return shingles
+}
+
+function getQuestionSimilarity(question: string, previousQuestion: string) {
+  const questionShingles = getQuestionShingles(question)
+  const previousQuestionShingles = getQuestionShingles(previousQuestion)
+
+  if (questionShingles.size === 0 || previousQuestionShingles.size === 0) return 0
+
+  let intersectionSize = 0
+  questionShingles.forEach((shingle) => {
+    if (previousQuestionShingles.has(shingle)) {
+      intersectionSize += 1
+    }
+  })
+
+  return intersectionSize / (questionShingles.size + previousQuestionShingles.size - intersectionSize)
+}
+
+function isRepeatedQuestion(question: string, previousQuestions: string[]) {
+  const fingerprint = normalizeQuestionFingerprint(question)
+
+  if (!fingerprint) return false
+
+  return previousQuestions.some((previousQuestion) => {
+    const previousFingerprint = normalizeQuestionFingerprint(previousQuestion)
+
+    if (previousFingerprint === fingerprint) return true
+    if (fingerprint.length < 14 || previousFingerprint.length < 14) return false
+
+    return getQuestionSimilarity(question, previousQuestion) >= 0.72
+  })
+}
+
+function buildRegenerateModelInput(summary: string, previousQuestions: string[]) {
+  const parts = [`요약:\n${summary}`]
+  const recentQuestions = previousQuestions.slice(-previousQuestionLimit)
+
+  if (recentQuestions.length > 0) {
+    parts.push(
+      [
+        "최근 생성된 질문:",
+        ...recentQuestions.map((question, index) => `${index + 1}. ${question}`),
+        "",
+        "위 질문은 반복을 피하기 위한 참고용입니다.",
+        "같은 문장이나 표현만 바꾼 질문은 피하세요.",
+        "이전 질문이 이미 다룬 핵심 소재나 대립 구도를 새 질문의 중심에 다시 놓지 마세요.",
+        "핵심 주제에서 멀어지지 말고, 실패 조건, 숨은 대가, 시간축, 관계, 감각의 변화, 반대편의 합리성 중 다른 렌즈를 선택하세요.",
+        "이전 질문을 억지로 피하느라 어색하거나 주변적인 질문을 만들지 마세요.",
+      ].join("\n")
+    )
+  }
+
+  return parts.join("\n\n")
+}
+
 function buildModelInput({
   source,
   content,
@@ -305,14 +424,18 @@ function buildModelInput({
         : sourceKind === "topic"
           ? "짧은 주제"
           : "긴 텍스트"
-  const usableContent = content.trim().slice(0, 8000)
+  const usableContent = content.trim().slice(0, contentCharacterLimit)
+  const contentGuide =
+    sourceKind === "topic"
+      ? "참고 내용: 짧은 주제입니다. 사용자 원문 자체를 사유 대상으로 삼고, 검증되지 않은 사실을 덧붙이지 마세요."
+      : "참고 내용: 충분히 확보되지 않았습니다. 사용자 원문에서 확인할 수 있는 범위를 넘어서 단정하지 마세요."
 
   return [
     `입력 유형: ${sourceLabel}`,
     `사용자 원문:\n${source}`,
     resolved && usableContent && usableContent !== source
       ? `참고 내용:\n${usableContent}`
-      : "참고 내용: 충분히 확보되지 않았습니다. 사용자 원문에서 확인할 수 있는 범위를 넘어서 단정하지 마세요.",
+      : contentGuide,
   ].join("\n\n")
 }
 
@@ -471,6 +594,13 @@ export async function POST(request: Request) {
 
   const source = typeof body.source === "string" ? body.source.trim() : ""
   const existingSummary = typeof body.summary === "string" ? body.summary.trim() : ""
+  const previousQuestions = Array.isArray(body.previousQuestions)
+    ? body.previousQuestions
+        .filter((question): question is string => typeof question === "string")
+        .map((question) => cleanGeneratedItem(question))
+        .filter(Boolean)
+        .slice(-previousQuestionLimit)
+    : []
 
   if (!source && !existingSummary) {
     return Response.json({ message: "Source is required" }, { status: 400 })
@@ -479,14 +609,15 @@ export async function POST(request: Request) {
   // 재생성 모드: 기존 요약으로 질문+고찰만 생성
   if (existingSummary) {
     let raw = ""
+    const regenerateInput = buildRegenerateModelInput(existingSummary, previousQuestions)
 
     try {
       const response = await client.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 800,
+        max_tokens: regenerationMaxTokens,
         temperature: 0.35,
         system: REGENERATE_SYSTEM_PROMPT,
-        messages: [{ role: "user", content: existingSummary }],
+        messages: [{ role: "user", content: regenerateInput }],
       })
 
       raw = response.content[0].type === "text" ? response.content[0].text.trim() : ""
@@ -519,9 +650,52 @@ export async function POST(request: Request) {
       }
     } catch {}
 
+    questions = normalizeList(questions, FALLBACK_QUESTIONS)
+    reflections = normalizeReflections(reflections, FALLBACK_REFLECTIONS)
+
+    if (previousQuestions.length > 0 && questions.some((question) => isRepeatedQuestion(question, previousQuestions))) {
+      raw = ""
+
+      try {
+        const response = await client.messages.create({
+          model: "claude-sonnet-4-6",
+          max_tokens: regenerationMaxTokens,
+          temperature: 0.45,
+          system: REGENERATE_SYSTEM_PROMPT,
+          messages: [
+            {
+              role: "user",
+              content: [
+                regenerateInput,
+                "방금 생성된 질문이 이전 질문과 겹쳤습니다.",
+                "중심 주제는 유지하되, 이전 질문의 핵심 소재나 대립 구도를 반복하지 말고 실패 조건, 숨은 대가, 시간축, 관계, 감각의 변화 중 하나로 렌즈를 바꾸어 다시 만드세요.",
+              ].join("\n\n"),
+            },
+          ],
+        })
+
+        raw = response.content[0].type === "text" ? response.content[0].text.trim() : ""
+        const jsonMatch = raw.match(/\{[\s\S]*\}/)
+        const parsed: unknown = JSON.parse(jsonMatch ? jsonMatch[0] : raw)
+
+        if (parsed && typeof parsed === "object" && "questions" in parsed) {
+          const payload = parsed as { questions?: unknown; reflections?: unknown }
+
+          if (Array.isArray(payload.questions) && payload.questions.every((q) => typeof q === "string")) {
+            questions = normalizeList(payload.questions, FALLBACK_QUESTIONS)
+          }
+          if (Array.isArray(payload.reflections) && payload.reflections.every((r) => typeof r === "string")) {
+            reflections = normalizeReflections(payload.reflections, FALLBACK_REFLECTIONS)
+          }
+        }
+      } catch (error) {
+        console.error("Qraft regenerate duplicate retry failed", error)
+      }
+    }
+
     return Response.json({
-      questions: normalizeList(questions, FALLBACK_QUESTIONS),
-      reflections: normalizeReflections(reflections, FALLBACK_REFLECTIONS),
+      questions,
+      reflections,
     })
   }
 
@@ -532,7 +706,7 @@ export async function POST(request: Request) {
 
   if (sourceKind === "youtube") {
     const [readerResult, metadataResult] = await Promise.allSettled([
-      fetchViaJina(source),
+      fetchViaJina(source, youtubeReaderTimeoutMs),
       fetchYouTubeMetadata(source),
     ])
     const readerContent = readerResult.status === "fulfilled" ? readerResult.value : ""
@@ -548,12 +722,8 @@ export async function POST(request: Request) {
       contentResolved = false
     }
   } else if (sourceKind === "topic") {
-    try {
-      content = await searchViaJina(source)
-    } catch {
-      content = source
-      contentResolved = false
-    }
+    content = source
+    contentResolved = false
   } else {
     content = source
   }
@@ -574,7 +744,7 @@ export async function POST(request: Request) {
   try {
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 1200,
+      max_tokens: generationMaxTokens,
       temperature: 0.35,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: modelInput }],

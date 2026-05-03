@@ -275,6 +275,22 @@ body {
   }
 }
 
+.qraft-structure-dot {
+  transition:
+    background-color 700ms ease,
+    box-shadow 700ms ease,
+    opacity 700ms ease;
+}
+
+.qraft-loading-extended {
+  filter: saturate(1.18);
+}
+
+.qraft-loading-extended .qraft-structure-dot {
+  background-color: rgb(255 189 121 / 0.9);
+  box-shadow: 0 0 30px rgb(255 172 96 / 0.72);
+}
+
 .qraft-silent-quote-active .qraft-silent-character {
   animation: qraft-silent-character-glow var(--silent-flow-cycle) linear var(--character-delay, 0ms) infinite;
 }

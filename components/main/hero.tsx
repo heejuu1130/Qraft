@@ -247,8 +247,8 @@ const refiningStepDuration = refiningDuration / 3
 const finalRevealDuration = 0
 const regenerateDuration = 650
 const regenerateStepDuration = 420
-const slowLoadingNoticeDelayMs = 20000
-const slowLoadingNotice = "조금만 더 다듬고 있습니다."
+const slowLoadingNoticeDelayMs = 15000
+const slowLoadingNotice = "질문을 조금만 더 다듬고 있습니다."
 const tokenExhaustedCode = "TOKEN_EXHAUSTED"
 const tokenExhaustedMessage =
   "토큰이 다 떨어져서 질문을 생성할 수 없습니다. 금방 관리자의 사비를 들여 채워보도록하겠습니다.."
@@ -2108,11 +2108,16 @@ export default function Hero() {
             className="flex min-h-72 flex-col items-center justify-center"
             style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif', animation: "qraft-reveal 600ms ease-out forwards" }}
           >
-            <div aria-hidden="true" className="relative h-40 w-40">
+            <div
+              aria-hidden="true"
+              className={`relative h-40 w-40 transition-[filter] duration-700 ${
+                loadingNotice === slowLoadingNotice ? "qraft-loading-extended" : ""
+              }`}
+            >
               {structureDots.map((dot) => (
                 <span
                   key={`${dot.x}-${dot.y}`}
-                  className="absolute left-1/2 top-1/2 h-2 w-2 bg-[#efd3a2]/85 shadow-[0_0_24px_rgba(239,211,162,0.62)]"
+                  className="qraft-structure-dot absolute left-1/2 top-1/2 h-2 w-2 bg-[#efd3a2]/85 shadow-[0_0_24px_rgba(239,211,162,0.62)]"
                   style={
                     {
                       "--x": dot.x,

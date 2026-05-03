@@ -1,3 +1,5 @@
+import { mixpanelTrack } from "@/lib/mixpanel"
+
 declare global {
   interface Window {
     dataLayer?: unknown[]
@@ -9,6 +11,14 @@ export type LoginProvider = "google" | "kakao"
 
 function send(name: string, params?: Record<string, unknown>) {
   if (typeof window === "undefined") return
+
+  try {
+    mixpanelTrack(name, params)
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("Mixpanel tracking skipped", error)
+    }
+  }
 
   if (typeof window.gtag === "function") {
     window.gtag("event", name, params)

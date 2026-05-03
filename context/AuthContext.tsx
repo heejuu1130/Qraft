@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import type { Session, User } from "@supabase/supabase-js"
 import { gtag, type LoginProvider } from "@/lib/gtag"
+import { mixpanelIdentify, mixpanelReset } from "@/lib/mixpanel"
 import { createClient } from "@/lib/supabase/client"
 
 type AuthContextType = {
@@ -26,16 +27,29 @@ const returningVisitSentStorageKey = "qraft:ga-returning-visit-sent"
 const isLoginProvider = (value: unknown): value is LoginProvider =>
   value === "google" || value === "kakao"
 
+const getAuthProvider = (session: Session | null) => {
+  const sessionProvider = session?.user.app_metadata.provider
+
+  return isLoginProvider(sessionProvider) ? sessionProvider : undefined
+}
+
+const identifyMixpanelUser = (session: Session | null) => {
+  if (!session?.user) return
+
+  mixpanelIdentify(session.user.id, {
+    signed_in: true,
+    auth_provider: getAuthProvider(session),
+  })
+}
+
 const trackPendingLoginSuccess = (session: Session | null) => {
   if (!session) return
 
   const pendingProvider = window.localStorage.getItem(pendingLoginProviderStorageKey)
-  const sessionProvider = session.user.app_metadata.provider
+  const sessionProvider = getAuthProvider(session)
   const provider = isLoginProvider(pendingProvider)
     ? pendingProvider
-    : isLoginProvider(sessionProvider)
-      ? sessionProvider
-      : null
+    : sessionProvider ?? null
 
   if (!provider) return
 
@@ -65,6 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     trackReturningVisit()
 
     supabase.auth.getSession().then(({ data: { session } }) => {
+      identifyMixpanelUser(session)
       trackPendingLoginSuccess(session)
       setSession(session)
       setUser(session?.user ?? null)
@@ -73,7 +88,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_IN") {
+        identifyMixpanelUser(session)
         trackPendingLoginSuccess(session)
+      }
+
+      if (event === "SIGNED_OUT") {
+        mixpanelReset()
       }
 
       setSession(session)
@@ -86,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     await supabase.auth.signOut()
+    mixpanelReset()
   }
 
   return (

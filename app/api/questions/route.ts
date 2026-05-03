@@ -4,7 +4,7 @@ import { createRouteClient } from "@/lib/supabase/route"
 const client = new Anthropic({ timeout: 30000 })
 const contentCharacterLimit = 8000
 const jinaReaderTimeoutMs = 8000
-const jinaSearchTimeoutMs = 6000
+const jinaSearchTimeoutMs = 10000
 const youtubeReaderTimeoutMs = 5000
 const youtubeMetadataTimeoutMs = 5000
 const generationMaxTokens = 1600
@@ -118,8 +118,6 @@ type QuestionRequest = {
 
 const LINK_PARSE_FAILURE_MESSAGE =
   "링크의 내용을 파악하는 데 실패했습니다. 다시 시도하거나 키워드로 시작해 보시겠어요?"
-const TOPIC_SEARCH_FAILURE_MESSAGE =
-  "주제에 대한 실제 정보를 충분히 찾지 못했습니다. 조금 더 구체적인 키워드로 다시 시도해 주세요."
 const TOKEN_EXHAUSTED_CODE = "TOKEN_EXHAUSTED"
 const TOKEN_EXHAUSTED_MESSAGE =
   "토큰이 다 떨어져서 질문을 생성할 수 없습니다. 금방 관리자의 사비를 들여 채워보도록하겠습니다.."
@@ -531,7 +529,7 @@ function buildModelInput({
   const usableContent = content.trim().slice(0, contentCharacterLimit)
   const contentGuide =
     sourceKind === "topic"
-      ? "참고 내용: 검색 결과를 확보하지 못했습니다. 검증되지 않은 사실을 덧붙이지 마세요."
+      ? "참고 내용: 검색 결과를 확보하지 못했습니다. 이미 알고 있는 널리 확인된 기본 정보는 사용할 수 있지만, 불확실한 사실은 단정하지 말고 사용자 원문 주제에서 벗어나지 마세요."
       : "참고 내용: 충분히 확보되지 않았습니다. 사용자 원문에서 확인할 수 있는 범위를 넘어서 단정하지 마세요."
 
   return [
@@ -567,17 +565,6 @@ function linkParseFailureResponse() {
     {
       message: LINK_PARSE_FAILURE_MESSAGE,
       code: "LINK_PARSE_FAILED",
-      retryable: true,
-    },
-    { status: 422 }
-  )
-}
-
-function topicSearchFailureResponse() {
-  return Response.json(
-    {
-      message: TOPIC_SEARCH_FAILURE_MESSAGE,
-      code: "TOPIC_SEARCH_FAILED",
       retryable: true,
     },
     { status: 422 }
@@ -846,7 +833,8 @@ export async function POST(request: Request) {
     try {
       content = await fetchSearchGrounding(source)
       contentResolved = Boolean(content.trim())
-    } catch {
+    } catch (error) {
+      console.error("Qraft topic search grounding failed", error)
       content = source
       contentResolved = false
     }
@@ -856,10 +844,6 @@ export async function POST(request: Request) {
 
   if ((sourceKind === "url" || sourceKind === "youtube") && !contentResolved) {
     return linkParseFailureResponse()
-  }
-
-  if (sourceKind === "topic" && !contentResolved) {
-    return topicSearchFailureResponse()
   }
 
   const modelInput = buildModelInput({

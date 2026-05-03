@@ -6,8 +6,8 @@ const contentCharacterLimit = 8000
 const jinaReaderTimeoutMs = 8000
 const youtubeReaderTimeoutMs = 5000
 const youtubeMetadataTimeoutMs = 5000
-const generationMaxTokens = 1600
-const regenerationMaxTokens = 1200
+const generationMaxTokens = 1450
+const regenerationMaxTokens = 1050
 const previousQuestionLimit = 8
 const topicWebSearchMaxUses = 1
 const questionRateLimitWindowMs = 60 * 60 * 1000
@@ -98,9 +98,10 @@ const QUESTION_DESIGN_RULES = `질문 설계:
 const REFLECTION_DESIGN_RULES = `고찰 설계:
 - reflections는 각 질문에 붙는 타인의 고찰 예시입니다.
 - reflections는 정확히 3개이며, 각 항목은 줄바꿈 없는 한 문단으로 씁니다.
-- 각 항목은 보통 3~5개의 짧은 문장 또는 호흡으로 구성합니다.
-- 3문장도 허용하지만, 갑자기 끊긴 느낌이 나면 안 됩니다. 전제, 비틀기, 여운이 모두 자연스럽게 닫힐 때만 3문장으로 끝냅니다.
-- 5문장은 생각의 층이 하나 더 필요할 때만 씁니다.
+- 각 항목은 보통 2~4개의 짧은 문장 또는 호흡으로 구성합니다.
+- 2문장도 허용하지만, 갑자기 끊긴 느낌이 나면 안 됩니다. 전제, 비틀기, 여운이 자연스럽게 닫힐 때만 2문장으로 끝냅니다.
+- 4문장은 생각의 층이 하나 더 필요할 때만 씁니다.
+- 길이는 지금보다 한 호흡 짧게 씁니다. 선명한 문장 하나가 느슨한 설명 두 문장보다 낫습니다.
 - 문장 중간에서 끊지 말고, JSON 문자열 안에 \\n 줄바꿈을 넣지 않습니다.
 - reflections는 질문에 대한 정답이나 해설이 아니라, 사유하는 사람이 남긴 잠정적 메모처럼 씁니다.
 - 첫 문장은 질문의 표면적 답을 반복하지 말고, 그 질문이 건드리는 전제나 긴장을 짚습니다.
@@ -474,7 +475,7 @@ function softenReflection(item: string) {
     ?.map((sentence) => sentence.trim())
     .filter(Boolean) ?? [softened]
 
-  return sentences.slice(0, 5).join(" ").replace(/\s+/g, " ").trim()
+  return sentences.slice(0, 4).join(" ").replace(/\s+/g, " ").trim()
 }
 
 function normalizeList(items: string[], fallback: string[]) {

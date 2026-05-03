@@ -9,10 +9,67 @@ const youtubeMetadataTimeoutMs = 5000
 const generationMaxTokens = 1600
 const regenerationMaxTokens = 1200
 const previousQuestionLimit = 8
-const topicWebSearchMaxUses = 2
+const topicWebSearchMaxUses = 1
 const questionRateLimitWindowMs = 60 * 60 * 1000
 const questionRateLimitMaxRequests = 30
 const questionRateLimitMaxEntries = 1000
+const factualTopicKeywords = [
+  "ceo",
+  "gpt",
+  "가격",
+  "가수",
+  "감독",
+  "교수",
+  "국가",
+  "기업",
+  "논문",
+  "대통령",
+  "대학교",
+  "도시",
+  "드라마",
+  "문제",
+  "배우",
+  "브랜드",
+  "사건",
+  "사고",
+  "선거",
+  "선수",
+  "소설",
+  "스타트업",
+  "시리즈",
+  "영화",
+  "올해",
+  "인물",
+  "작가",
+  "작품",
+  "전쟁",
+  "정책",
+  "제품",
+  "최근",
+  "출시",
+  "팀",
+  "회사",
+]
+
+const abstractTopicKeywords = [
+  "감정",
+  "고독",
+  "공간",
+  "관계",
+  "기억",
+  "도파민",
+  "데이터",
+  "사랑",
+  "상실",
+  "실존",
+  "알고리즘",
+  "인간성",
+  "자아",
+  "주체성",
+  "존재",
+  "침묵",
+  "편집",
+]
 
 const PERSONA = `Qraft의 브랜드 톤:
 - Qraft는 정답을 검사하지 않고, 사유가 시작되는 정확한 입구를 설계합니다.
@@ -80,6 +137,7 @@ const SYSTEM_PROMPT = [
 - 검색 결과 중 사용자 원문과 직접 관련이 낮은 결과는 사용하지 않습니다. 결과 여러 개가 서로 다르면 공통으로 확인되는 내용과 가장 직접적인 결과를 우선합니다.
 - 짧은 주제에서 웹 검색 도구를 사용할 수 있는 경우, 실존 인물, 사건, 작품, 브랜드, 단체, 장소, 수치, 시기 같은 사실성 주제는 반드시 웹 검색 결과로 확인한 내용만 사용합니다.
 - 검색 결과로 확인되지 않은 사실은 요약에 쓰지 않습니다. 대신 확인된 범위, 불확실성, 생각해볼 쟁점을 중심으로 작성합니다.
+- 웹 검색 도구가 제공되지 않은 짧은 주제는 개념형 주제로 간주합니다. 이 경우 실존 인물, 사건, 작품 배경, 저자, 연도, 소속, 수치 같은 사실을 절대 덧붙이지 말고 입력어 자체가 품은 관점과 긴장만 다룹니다.
 - 링크 본문이나 검색 결과가 부족하면 모르는 사실을 꾸며내지 말고, 입력된 단어에서 직접 출발한 관점 중심 요약과 질문을 만듭니다.
 - 유튜브 링크에서 영상 제목이나 채널 정보만 확보된 경우, 제목에서 드러나는 주제와 관점으로 요약과 질문을 만들되 "영상을 확인할 수 없습니다", "내용을 요약하기 어렵습니다", "일반적 맥락" 같은 한계 설명을 출력하지 않습니다.
 - 유튜브 제목이나 채널 정보만 확보된 경우, 제목에 없는 작품 배경, 악기, 제작 의도, 인물 관계, 사건을 사실처럼 추가 추정하지 않습니다.
@@ -447,6 +505,24 @@ function getSourceKind(source: string): SourceKind {
   return source.length < 100 ? "topic" : "text"
 }
 
+function shouldGroundTopic(source: string) {
+  const value = source.trim().toLowerCase()
+  const hasAbstractSignal = abstractTopicKeywords.some((keyword) => value.includes(keyword))
+  const hasSpecificLatinName = /[a-z]{3,}/.test(value)
+  const hasFactualKeyword = factualTopicKeywords.some((keyword) => value.includes(keyword))
+
+  if (!value) return false
+  if (/\d/.test(value)) return true
+  if (hasSpecificLatinName || hasFactualKeyword) return true
+  if (hasAbstractSignal) return false
+
+  if (/^[가-힣]{2,4}$/.test(value) && !hasAbstractSignal) {
+    return true
+  }
+
+  return false
+}
+
 function normalizeQuestionFingerprint(question: string) {
   return question
     .replace(/[?？!！.,，。'"“”‘’()\[\]{}:;·…\s]/g, "")
@@ -527,11 +603,13 @@ function buildModelInput({
   content,
   sourceKind,
   resolved,
+  forceWebSearch,
 }: {
   source: string
   content: string
   sourceKind: SourceKind
   resolved: boolean
+  forceWebSearch?: boolean
 }) {
   const sourceLabel =
     sourceKind === "youtube"
@@ -544,7 +622,9 @@ function buildModelInput({
   const usableContent = content.trim().slice(0, contentCharacterLimit)
   const contentGuide =
     sourceKind === "topic"
-      ? "참고 내용: 웹 검색 도구를 반드시 사용하세요. 검색 결과로 확인된 사실만 요약에 쓰고, 확인되지 않은 사실은 단정하지 마세요."
+      ? forceWebSearch
+        ? "참고 내용: 웹 검색 도구를 반드시 사용하세요. 검색 결과로 확인된 사실만 요약에 쓰고, 확인되지 않은 사실은 단정하지 마세요."
+        : "참고 내용: 개념형 주제입니다. 실존 인물, 사건, 작품 배경, 저자, 연도, 소속, 수치 같은 사실을 덧붙이지 말고 입력어 자체가 품은 관점과 긴장만 다루세요."
       : "참고 내용: 충분히 확보되지 않았습니다. 사용자 원문에서 확인할 수 있는 범위를 넘어서 단정하지 마세요."
 
   return [
@@ -826,6 +906,7 @@ export async function POST(request: Request) {
   let content: string
   let contentResolved = true
   const sourceKind = getSourceKind(source)
+  const forceTopicWebSearch = sourceKind === "topic" && shouldGroundTopic(source)
 
   if (sourceKind === "youtube") {
     const [readerResult, metadataResult] = await Promise.allSettled([
@@ -860,6 +941,7 @@ export async function POST(request: Request) {
     content,
     sourceKind,
     resolved: contentResolved && content.trim().length > 0,
+    forceWebSearch: forceTopicWebSearch,
   })
 
   let raw = ""
@@ -871,7 +953,7 @@ export async function POST(request: Request) {
       temperature: 0.35,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: modelInput }],
-      ...(sourceKind === "topic"
+      ...(forceTopicWebSearch
         ? {
             tools: [
               {

@@ -897,7 +897,10 @@ export default function Hero() {
     startSlowLoadingNotice()
 
     try {
-      const payloadPromise = fetchQuestionPayload<QuestionPayload>({ source }, "Question API request failed")
+      const payloadPromise = fetchQuestionPayload<QuestionPayload>(
+        { source },
+        "질문을 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
+      )
 
       const [payload] = await Promise.all([payloadPromise, wait(refiningDuration)])
 
@@ -968,7 +971,7 @@ export default function Hero() {
     try {
       const payloadPromise = fetchQuestionPayload<{ questions: string[]; reflections: string[] }>(
         { source: lastSource, summary, previousQuestions },
-        "Regenerate API request failed"
+        "질문을 다시 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
       )
 
       const [payload] = await Promise.all([payloadPromise, wait(regenerateDuration)])

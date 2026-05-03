@@ -36,15 +36,15 @@ const QUESTION_DESIGN_RULES = `질문 설계:
 
 const REFLECTION_DESIGN_RULES = `고찰 설계:
 - reflections는 각 질문에 붙는 타인의 고찰 예시입니다.
-- reflections는 정확히 3개이며, 각 항목은 보통 4개의 짧은 줄로 씁니다.
-- 3줄도 허용하지만, 3줄에서 갑자기 끊긴 느낌이 나면 안 됩니다. 전제, 비틀기, 여운이 모두 자연스럽게 닫힐 때만 3줄로 끝냅니다.
-- 5줄은 생각의 층이 하나 더 필요할 때만 씁니다.
-- 각 줄은 완성된 한 문장 또는 한 호흡이어야 하며, 문장 중간에서 끊지 않습니다.
-- 줄바꿈은 JSON 문자열 안의 \\n으로 표현합니다.
+- reflections는 정확히 3개이며, 각 항목은 줄바꿈 없는 한 문단으로 씁니다.
+- 각 항목은 보통 3~5개의 짧은 문장 또는 호흡으로 구성합니다.
+- 3문장도 허용하지만, 갑자기 끊긴 느낌이 나면 안 됩니다. 전제, 비틀기, 여운이 모두 자연스럽게 닫힐 때만 3문장으로 끝냅니다.
+- 5문장은 생각의 층이 하나 더 필요할 때만 씁니다.
+- 문장 중간에서 끊지 말고, JSON 문자열 안에 \\n 줄바꿈을 넣지 않습니다.
 - reflections는 질문에 대한 정답이나 해설이 아니라, 사유하는 사람이 남긴 잠정적 메모처럼 씁니다.
-- 첫 줄은 질문의 표면적 답을 반복하지 말고, 그 질문이 건드리는 전제나 긴장을 짚습니다.
-- 중간 줄에는 익숙한 관점을 한 번 비틀거나, 사용자가 놓치기 쉬운 대가, 역설, 침묵, 반대편의 합리성을 보여줍니다.
-- 마지막 줄은 결론을 닫지 말고, 더 생각하고 싶어지는 여운이나 다음 물음으로 끝냅니다.
+- 첫 문장은 질문의 표면적 답을 반복하지 말고, 그 질문이 건드리는 전제나 긴장을 짚습니다.
+- 중간 문장에는 익숙한 관점을 한 번 비틀거나, 사용자가 놓치기 쉬운 대가, 역설, 침묵, 반대편의 합리성을 보여줍니다.
+- 마지막 문장은 결론을 닫지 말고, 더 생각하고 싶어지는 여운이나 다음 물음으로 끝냅니다.
 - "필요가 있다", "때문이다", "해야 한다", "중요하다"처럼 결론을 닫는 종결을 피합니다.
 - "처럼 보입니다", "일지도 모릅니다", "생각해볼 수 있습니다", "묻게 됩니다", "남습니다" 같은 열린 종결을 자연스럽게 섞습니다.
 - 일부 고찰은 허를 찌르는 관점을 담되, 과장된 역설이나 냉소, 단정적인 훈계로 보이지 않게 합니다.
@@ -202,17 +202,17 @@ async function fetchViaJina(url: string, timeoutMs = jinaReaderTimeoutMs): Promi
 
 const FALLBACK_QUESTIONS = [
   "지금 가장 먼저 확인해야 할 쟁점은 무엇일까요?",
-  "이 문제를 바라보는 우리의 전제는 충분히 타당할까요?",
-  "이 변화 앞에서 인간이 지켜야 할 태도는 무엇일까요?",
+  "이 문제를 바라보기 전에 우리가 먼저 의심해야 할 전제는 무엇일까요?",
+  "이 변화를 받아들일 때 무엇을 얻고 무엇을 잃게 될까요?",
 ]
 
 const FALLBACK_SUMMARY =
   "입력된 내용을 하나의 사유 대상으로 바라보고, 그 안에 숨은 전제와 감정의 방향을 살펴봅니다."
 
 const FALLBACK_REFLECTIONS = [
-  "이 질문은 대상이 무엇을 말하는지보다,\n무엇을 말하지 않는지를 살피게 합니다.\n답은 우리가 당연하게 넘긴 기준 쪽에 남아 있을지도 모릅니다.",
-  "핵심은 주장 자체보다,\n그 주장이 기대고 있는 전제를 확인하는 데 있습니다.\n어쩌면 내가 편하게 받아들인 확신이 더 많은 것을 가리고 있을지도 모릅니다.",
-  "이 물음은 쉽게 결론을 내리기보다,\n우리가 어떤 태도로 이 문제를 응시하는지 묻습니다.\n무엇을 잃지 않으려 하는지 남겨볼 수 있습니다.",
+  "이 질문은 대상이 무엇을 말하는지보다 무엇을 말하지 않는지를 살피게 합니다. 답은 우리가 당연하게 넘긴 기준 쪽에 남아 있을지도 모릅니다.",
+  "핵심은 주장 자체보다 그 주장이 기대고 있는 전제를 확인하는 데 있습니다. 어쩌면 내가 편하게 받아들인 확신이 더 많은 것을 가리고 있을지도 모릅니다.",
+  "이 물음은 쉽게 결론을 내리기보다 우리가 어떤 태도로 이 문제를 응시하는지 묻습니다. 무엇을 잃지 않으려 하는지 남겨볼 수 있습니다.",
 ]
 
 function normalizeSummary(summary: string) {
@@ -278,7 +278,9 @@ function softenReflection(item: string) {
     .split("\n")
     .map(cleanReflectionLine)
     .filter(Boolean)
-    .join("\n")
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
 
   const softened = cleaned
     .replace(/필요가 있다\.?$/u, "필요가 있을지도 모릅니다.")
@@ -287,19 +289,12 @@ function softenReflection(item: string) {
     .replace(/중요하다\.?$/u, "중요해 보입니다.")
     .replace(/볼 수 있다\.?$/u, "볼 수 있습니다.")
 
-  const lines = softened
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
+  const sentences = softened
+    .match(/[^.!?。！？]+[.!?。！？]?/gu)
+    ?.map((sentence) => sentence.trim())
+    .filter(Boolean) ?? [softened]
 
-  if (lines.length >= 3) {
-    return lines.slice(0, 5).join("\n")
-  }
-
-  const sentences = softened.match(/[^.!?。！？]+[.!?。！？]?/gu) ?? [softened]
-  const shortened = sentences.slice(0, 5).join("").trim()
-
-  return shortened.length > 360 ? `${shortened.slice(0, 357).trim()}...` : shortened
+  return sentences.slice(0, 5).join(" ").replace(/\s+/g, " ").trim()
 }
 
 function normalizeList(items: string[], fallback: string[]) {

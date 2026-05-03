@@ -210,6 +210,7 @@ type LandingIntroPhase = "waiting" | "playing" | "settled"
 type FeedbackStatus = "idle" | "sending" | "sent" | "error"
 
 type QuestionPayload = {
+  cacheHit?: boolean
   summary: string
   questions: string[]
   reflections: string[]
@@ -243,6 +244,7 @@ type RestoredResultState = Omit<PendingSaveState, "questionIndex"> & {
 }
 
 const refiningDuration = 2600
+const cachedRefiningDuration = 280
 const refiningStepDuration = refiningDuration / 3
 const finalRevealDuration = 0
 const regenerateDuration = 650
@@ -874,9 +876,12 @@ export default function Hero() {
   }, [displayedSummary, summaryExpanded, isReady])
 
   const generateQuestions = async (source: string) => {
+    const isExampleTopic = exampleTopics.includes(source)
+
     gtag.questionGenerateRequest({
       signed_in: Boolean(user),
       source_type: getSourceType(source),
+      source_origin: isExampleTopic ? "example_topic" : "manual",
       source_length_bucket: getLengthBucket(source),
       elapsed_ms: getLandingElapsedMs(),
     })
@@ -897,12 +902,19 @@ export default function Hero() {
     startSlowLoadingNotice()
 
     try {
+      const generationStartedAt = window.performance.now()
       const payloadPromise = fetchQuestionPayload<QuestionPayload>(
-        { source },
+        { source, ...(isExampleTopic ? { sourceOrigin: "example_topic" } : {}) },
         "질문을 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
       )
 
-      const [payload] = await Promise.all([payloadPromise, wait(refiningDuration)])
+      const payload = await payloadPromise
+      const minimumDuration = payload.cacheHit ? cachedRefiningDuration : refiningDuration
+      const remainingDuration = Math.max(0, minimumDuration - (window.performance.now() - generationStartedAt))
+
+      if (remainingDuration > 0) {
+        await wait(remainingDuration)
+      }
 
       window.clearTimeout(step1TimerRef.current)
       clearSlowLoadingNotice()
@@ -919,7 +931,9 @@ export default function Hero() {
       gtag.questionGenerateSuccess({
         signed_in: Boolean(user),
         source_type: getSourceType(source),
+        source_origin: isExampleTopic ? "example_topic" : "manual",
         source_length_bucket: getLengthBucket(source),
+        cache_hit: Boolean(payload.cacheHit),
         question_count: payload.questions.length,
         reflection_count: payload.reflections.length,
       })
@@ -947,6 +961,7 @@ export default function Hero() {
       gtag.questionGenerateFailure({
         signed_in: Boolean(user),
         source_type: getSourceType(source),
+        source_origin: isExampleTopic ? "example_topic" : "manual",
         source_length_bucket: getLengthBucket(source),
       })
     }

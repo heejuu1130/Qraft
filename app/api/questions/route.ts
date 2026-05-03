@@ -382,6 +382,7 @@ const SKELETON_PROMPT = [
 ].join("\n\n")
 
 type QuestionRequest = {
+  sourceOrigin?: unknown
   source?: unknown
   summary?: unknown
   previousQuestions?: unknown
@@ -903,6 +904,7 @@ type TopicGroundingReason =
   | "external_reference"
   | "named_work_marker"
   | "mixed_entity_signal"
+  | "example_topic"
   | "short_or_single_name"
   | "spaced_name_or_title"
   | "semantic_factual_prototype"
@@ -997,6 +999,17 @@ function getSemanticRouterDecision(input: string) {
   }
 
   return { kind: null, score: Math.max(factualScore, abstractScore), factualScore, abstractScore }
+}
+
+function getExampleTopicGroundingDecision(source: string): TopicGroundingDecision {
+  const semanticDecision = getSemanticRouterDecision(source)
+
+  return {
+    reason: "example_topic",
+    semanticScoreAbstract: Number(semanticDecision.abstractScore.toFixed(4)),
+    semanticScoreFactual: Number(semanticDecision.factualScore.toFixed(4)),
+    useWebSearch: false,
+  }
 }
 
 // Keep this deterministic. A model-based classifier would add another slow call before generation.
@@ -1775,6 +1788,7 @@ export async function POST(request: Request) {
   }
 
   const source = typeof body.source === "string" ? body.source.trim() : ""
+  const sourceOrigin = body.sourceOrigin === "example_topic" ? "example_topic" : null
   const existingSummary = typeof body.summary === "string" ? body.summary.trim() : ""
   const previousQuestions = Array.isArray(body.previousQuestions)
     ? body.previousQuestions
@@ -1929,7 +1943,11 @@ export async function POST(request: Request) {
   let contentResolved = true
   const sourceKind = getSourceKind(source)
   const topicGroundingDecision =
-    sourceKind === "topic" ? getTopicGroundingDecision(source) : null
+    sourceKind === "topic"
+      ? sourceOrigin === "example_topic"
+        ? getExampleTopicGroundingDecision(source)
+        : getTopicGroundingDecision(source)
+      : null
   const forceTopicWebSearch = topicGroundingDecision?.useWebSearch ?? false
   const cacheSourceKey = getQuestionCacheSourceKey(source, sourceKind)
   const cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, forceTopicWebSearch)
@@ -1961,6 +1979,7 @@ export async function POST(request: Request) {
         summary: cachedResult.summary,
         questions: cachedResult.questions,
         reflections: cachedResult.reflections,
+        cacheHit: true,
       })
     }
   }
@@ -2293,5 +2312,5 @@ export async function POST(request: Request) {
     request,
   })
 
-  return Response.json({ summary, questions, reflections })
+  return Response.json({ summary, questions, reflections, cacheHit: false })
 }

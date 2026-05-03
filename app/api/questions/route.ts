@@ -7,6 +7,7 @@ const jinaReaderTimeoutMs = 8000
 const youtubeReaderTimeoutMs = 5000
 const youtubeMetadataTimeoutMs = 5000
 const generationMaxTokens = 1450
+const groundedGenerationMaxTokens = 1900
 const regenerationMaxTokens = 1050
 const previousQuestionLimit = 8
 const topicWebSearchMaxUses = 1
@@ -166,6 +167,8 @@ const SYSTEM_PROMPT = [
 - 검색 결과 중 사용자 원문과 직접 관련이 낮은 결과는 사용하지 않습니다. 결과 여러 개가 서로 다르면 공통으로 확인되는 내용과 가장 직접적인 결과를 우선합니다.
 - 짧은 주제에서 웹 검색 도구를 사용할 수 있는 경우, 실존 인물, 사건, 작품, 브랜드, 단체, 장소, 수치, 시기 같은 사실성 주제는 반드시 웹 검색 결과로 확인한 내용만 사용합니다.
 - 검색 결과로 확인되지 않은 사실은 요약에 쓰지 않습니다. 대신 확인된 범위, 불확실성, 생각해볼 쟁점을 중심으로 작성합니다.
+- 웹 검색 결과가 많은 경우에도 사실을 길게 나열하지 않습니다. 입력어를 이해하는 데 필요한 확인된 사실 2~3개와 그 사실들이 만드는 긴장만 남깁니다.
+- 웹 검색 기반 질문은 미래 예측, 추가 검색, 정답 확인을 요구하지 않습니다. 확인된 사실을 바탕으로 사용자의 관점과 판단 기준을 묻습니다.
 - 웹 검색 도구가 제공되지 않은 짧은 주제는 개념형 주제로 간주합니다. 이 경우 실존 인물, 사건, 작품 배경, 저자, 연도, 소속, 수치 같은 사실을 절대 덧붙이지 말고 입력어 자체가 품은 관점과 긴장만 다룹니다.
 - 링크 본문이나 검색 결과가 부족하면 모르는 사실을 꾸며내지 말고, 입력된 단어에서 직접 출발한 관점 중심 요약과 질문을 만듭니다.
 - 유튜브 링크에서 영상 제목이나 채널 정보만 확보된 경우, 제목에서 드러나는 주제와 관점으로 요약과 질문을 만들되 "영상을 확인할 수 없습니다", "내용을 요약하기 어렵습니다", "일반적 맥락" 같은 한계 설명을 출력하지 않습니다.
@@ -672,7 +675,13 @@ function buildModelInput({
   const contentGuide =
     sourceKind === "topic"
       ? forceWebSearch
-        ? "참고 내용: 웹 검색 도구를 반드시 사용하세요. 검색 결과로 확인된 사실만 요약에 쓰고, 확인되지 않은 사실은 단정하지 마세요."
+        ? [
+            "참고 내용: 웹 검색 도구를 반드시 사용하세요.",
+            "검색 결과로 확인된 사실만 요약에 쓰고, 확인되지 않은 사실은 단정하지 마세요.",
+            "검색 결과를 길게 나열하지 말고 핵심 사실 2~3개와 그 사실들이 만드는 긴장만 사용하세요.",
+            "summary는 4줄 이내로 압축하고, questions/reflections까지 반드시 완성된 JSON 객체 하나만 반환하세요.",
+            "마크다운 코드블록, 인사말, 설명 문장은 절대 쓰지 마세요.",
+          ].join(" ")
         : "참고 내용: 개념형 주제입니다. 실존 인물, 사건, 작품 배경, 저자, 연도, 소속, 수치 같은 사실을 덧붙이지 말고 입력어 자체가 품은 관점과 긴장만 다루세요."
       : "참고 내용: 충분히 확보되지 않았습니다. 사용자 원문에서 확인할 수 있는 범위를 넘어서 단정하지 마세요."
 
@@ -1000,8 +1009,8 @@ export async function POST(request: Request) {
   try {
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: generationMaxTokens,
-      temperature: 0.35,
+      max_tokens: forceTopicWebSearch ? groundedGenerationMaxTokens : generationMaxTokens,
+      temperature: forceTopicWebSearch ? 0.25 : 0.35,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: modelInput }],
       ...(forceTopicWebSearch

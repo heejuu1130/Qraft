@@ -381,7 +381,8 @@ route 기준:
 
 판단 규칙:
 - "물리적 공간의 상실", "AI 시대의 인간성"처럼 개념 수식어가 붙은 주제는 실존 대상이 아니라 abstract_topic입니다.
-- "참을 수 없는 존재의 가벼움"처럼 실제 작품명일 수 있어도 사용자가 예시/사유 주제로 제시한 문장형 화두라면 abstract_topic에 가깝게 봅니다.
+- "참을 수 없는 존재의 가벼움"처럼 문학 작품명, 영화명, 책 제목으로 널리 알려진 고유 제목이 단독으로 들어오면 factual_topic입니다.
+- 같은 문구라도 사용자가 관계, 상실, 인간성, 의미, 태도처럼 개념적 화두로 확장해 입력한 경우에는 abstract_topic입니다.
 - 특정 사람/회사/영화/책/제품/장소의 실제 정보가 핵심이면 factual_topic입니다.
 - 최신성이나 외부 확인이 핵심이면 current_fact 또는 external_reference입니다.
 - 반드시 JSON 객체 하나만 반환합니다.
@@ -1110,7 +1111,7 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
     /^[가-힣]{2,6}$/.test(firstWord) &&
     !abstractTopicKeywords.includes(firstWord) &&
     !conceptLeadWords.includes(firstWord) &&
-    !/(?:은|는|한|적|적인|로운)$/.test(firstWord) &&
+    !/(?:은|는|을|를|한|적|적인|로운)$/.test(firstWord) &&
     hasAbstractSignal
   const semanticDecision = getSemanticRouterDecision(value)
   const hasLikelyHangulName = /^[가-힣]{2,6}$/.test(value) && !hasAbstractSignal

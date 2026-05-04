@@ -70,6 +70,12 @@ body {
   opacity: 1;
 }
 
+.qraft-motion-rested *,
+.qraft-motion-rested *::before,
+.qraft-motion-rested *::after {
+  animation-play-state: paused !important;
+}
+
 .qraft-example-topic-arrive {
   opacity: 0;
   animation: qraft-example-topic-arrive 620ms ease var(--topic-delay, 3650ms) forwards;

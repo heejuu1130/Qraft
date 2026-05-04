@@ -4,6 +4,7 @@ import { MeshGradient } from "@paper-design/shaders-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { gtag } from "@/lib/gtag"
+import { usePerformanceMode } from "@/lib/use-performance-mode"
 
 const desert = {
     background: "#120b07",
@@ -15,6 +16,7 @@ export default function AuthPage() {
     const [hasError, setHasError] = useState(false)
     const [errorCode, setErrorCode] = useState("")
     const [errorMessage, setErrorMessage] = useState("")
+    const { pauseCssMotion, reduceShaderLoad, renderShader } = usePerformanceMode()
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
@@ -28,13 +30,22 @@ export default function AuthPage() {
     }, [])
 
     return (
-        <div className="relative h-screen w-full overflow-hidden bg-[#120b07]">
+        <div className={`relative h-screen w-full overflow-hidden bg-[#120b07] ${pauseCssMotion ? "qraft-motion-rested" : ""}`}>
             <div className="absolute inset-0">
-                <MeshGradient
-                    className="absolute inset-0 h-full w-full"
-                    colors={[desert.background, "#2a170e", desert.ember, desert.sand]}
-                    speed={0.5}
+                <div
+                    className="absolute inset-0"
+                    style={{
+                        background:
+                            "linear-gradient(135deg, #120b07 0%, #1d100a 34%, #2a170e 62%, #8d4f31 100%)",
+                    }}
                 />
+                {renderShader && (
+                    <MeshGradient
+                        className="absolute inset-0 h-full w-full"
+                        colors={[desert.background, "#2a170e", desert.ember, desert.sand]}
+                        speed={reduceShaderLoad ? 0.18 : 0.5}
+                    />
+                )}
                 <div className="pointer-events-none absolute inset-0 bg-[#120b07]/35" />
             </div>
 

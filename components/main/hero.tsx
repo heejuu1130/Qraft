@@ -9,6 +9,7 @@ import { useBgm } from "@/context/BgmContext"
 import { gtag } from "@/lib/gtag"
 import { logClientError } from "@/lib/client-error"
 import { normalizeQuestionEndingTone, normalizeQuestionListTone } from "@/lib/question-tone"
+import { usePerformanceMode } from "@/lib/use-performance-mode"
 
 const desert = {
   background: "#120b07",
@@ -491,6 +492,12 @@ export default function Hero() {
   const supabase = useMemo(() => createClient(), [])
   const { user, signOut } = useAuth()
   const { bgmOn, toggleBgm } = useBgm()
+  const {
+    pageVisible,
+    pauseCssMotion,
+    reduceShaderLoad,
+    renderShader,
+  } = usePerformanceMode()
   const questionHistoryScopedKey = getScopedStorageKey(questionHistoryStorageKey, user?.id)
   const profileImageUrl = getProfileImageUrl(user)
   const profileName = getDisplayName(user)
@@ -510,6 +517,8 @@ export default function Hero() {
   const isRefined = isLoading || isReady
   const baseSpeed = isRefined ? 0.25 : 0.5
   const speed = isMidnightInsight ? baseSpeed * 0.5 : baseSpeed
+  const shaderSpeed = reduceShaderLoad ? speed * 0.38 : speed
+  const renderLayeredShaders = renderShader && !reduceShaderLoad
   const backgroundTreatment = isReady
     ? "scale-[1.03] blur-[14px]"
     : isRevealing
@@ -656,7 +665,7 @@ export default function Hero() {
   }, [isLanding])
 
   useEffect(() => {
-    if (!isLanding) return
+    if (!isLanding || !pageVisible) return
 
     const section3 = section3Ref.current
     if (!section3) return
@@ -708,7 +717,7 @@ export default function Hero() {
         window.cancelAnimationFrame(frameId)
       }
     }
-  }, [isLanding])
+  }, [isLanding, pageVisible])
 
   useEffect(() => {
     if (!isLanding) return
@@ -754,7 +763,7 @@ export default function Hero() {
 
 
   useEffect(() => {
-    if (!isLanding) return
+    if (!isLanding || !pageVisible) return
 
     const philosophySection = philosophySectionRef.current
     const philosophyCard = philosophyCardRef.current
@@ -801,7 +810,7 @@ export default function Hero() {
         window.cancelAnimationFrame(frameId)
       }
     }
-  }, [isLanding])
+  }, [isLanding, pageVisible])
 
   useEffect(() => {
     let cancelled = false
@@ -1426,9 +1435,10 @@ export default function Hero() {
   return (
     <div
       className={
-        isLanding
+        `${isLanding
           ? "relative min-h-screen w-full overflow-x-hidden bg-[#120b07]"
           : "relative h-screen w-full overflow-hidden bg-[#120b07]"
+        } ${pauseCssMotion ? "qraft-motion-rested" : ""}`
       }
     >
       {/* 우측 상단 로그인/로그아웃 */}
@@ -1772,45 +1782,60 @@ export default function Hero() {
       <div
         className={`${isLanding ? "fixed" : "absolute"} inset-0 transition-[filter,transform] duration-[1600ms] ease-in-out ${backgroundTreatment}`}
       >
-        <MeshGradient
-          className="absolute inset-0 h-full w-full"
-          colors={[desert.background, "#2a170e", desert.ember, desert.sand]}
-          speed={speed}
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(135deg, #120b07 0%, #1d100a 34%, #2a170e 62%, #8d4f31 100%)",
+          }}
         />
-        <MeshGradient
-          className={`absolute inset-0 h-full w-full transition-opacity duration-[1500ms] ease-in-out ${
-            isLanding && processSectionActive ? "opacity-80" : "opacity-0"
-          }`}
-          colors={processRecordColors}
-          speed={speed * 0.92}
-        />
+        {renderShader && (
+          <MeshGradient
+            className="absolute inset-0 h-full w-full"
+            colors={[desert.background, "#2a170e", desert.ember, desert.sand]}
+            speed={shaderSpeed}
+          />
+        )}
+        {renderLayeredShaders && (
+          <MeshGradient
+            className={`absolute inset-0 h-full w-full transition-opacity duration-[1500ms] ease-in-out ${
+              isLanding && processSectionActive ? "opacity-80" : "opacity-0"
+            }`}
+            colors={processRecordColors}
+            speed={shaderSpeed * 0.92}
+          />
+        )}
         <div
           className={`absolute inset-0 bg-[#080403]/37 transition-opacity duration-[1500ms] ease-in-out ${
             isLanding && processSectionActive ? "opacity-100" : "opacity-0"
           }`}
         />
-        <MeshGradient
-          className={`absolute inset-0 h-full w-full transition-opacity duration-[1400ms] ease-in-out ${
-            isLanding && silentSectionActive ? "opacity-100" : "opacity-0"
-          }`}
-          colors={silentRecordColors}
-          speed={speed * 0.85}
-        />
+        {renderLayeredShaders && (
+          <MeshGradient
+            className={`absolute inset-0 h-full w-full transition-opacity duration-[1400ms] ease-in-out ${
+              isLanding && silentSectionActive ? "opacity-100" : "opacity-0"
+            }`}
+            colors={silentRecordColors}
+            speed={shaderSpeed * 0.85}
+          />
+        )}
 
-        <div className="pointer-events-none absolute inset-0">
-          <div
-            className="absolute left-1/3 top-1/4 h-32 w-32 rounded-full bg-[#d8a66d]/10 blur-3xl animate-pulse"
-            style={{ animationDuration: `${3 / speed}s` }}
-          />
-          <div
-            className="absolute bottom-1/3 right-1/4 h-24 w-24 rounded-full bg-[#f1d3a2]/10 blur-2xl animate-pulse"
-            style={{ animationDuration: `${2 / speed}s`, animationDelay: "1s" }}
-          />
-          <div
-            className="absolute right-1/3 top-1/2 h-20 w-20 rounded-full bg-[#7d452b]/10 blur-xl animate-pulse"
-            style={{ animationDuration: `${4 / speed}s`, animationDelay: "0.5s" }}
-          />
-        </div>
+        {!reduceShaderLoad && (
+          <div className="pointer-events-none absolute inset-0">
+            <div
+              className="absolute left-1/3 top-1/4 h-32 w-32 rounded-full bg-[#d8a66d]/10 blur-3xl animate-pulse"
+              style={{ animationDuration: `${3 / speed}s` }}
+            />
+            <div
+              className="absolute bottom-1/3 right-1/4 h-24 w-24 rounded-full bg-[#f1d3a2]/10 blur-2xl animate-pulse"
+              style={{ animationDuration: `${2 / speed}s`, animationDelay: "1s" }}
+            />
+            <div
+              className="absolute right-1/3 top-1/2 h-20 w-20 rounded-full bg-[#7d452b]/10 blur-xl animate-pulse"
+              style={{ animationDuration: `${4 / speed}s`, animationDelay: "0.5s" }}
+            />
+          </div>
+        )}
       </div>
 
       {/* 오버레이 */}

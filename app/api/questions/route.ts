@@ -287,7 +287,9 @@ const QUESTION_DESIGN_RULES = `질문 설계:
 - 2번 질문은 핵심 쟁점 질문입니다. 대상 안의 전제, 갈등, 대가, 기준의 충돌 중 하나를 묻습니다.
 - 3번 질문은 확장 질문입니다. 그 생각을 받아들였을 때 개인, 관계, 사회, 시간의 감각이 어떻게 달라지는지 오래 생각하게 묻습니다.
 - 1번에서 3번으로 갈수록 더 깊어지되, 세 질문 모두 쉬운 한국어 한 문장으로 씁니다.
+- 질문은 브랜드 톤에 맞는 존중형 문장으로 끝냅니다.
 - 질문의 끝맺음은 정답을 확인받는 느낌의 "~인가요?", "~한가요?"보다 사유를 열어두는 "~일까요?", "~할까요?", "~달라질까요?", "~있을까요?"를 우선합니다.
+- 반말형 질문인 "~일까?", "~할까?", "~될까?", "~있을까?"는 쓰지 않습니다.
 - "무엇인가요?", "충분히 타당한가요?"처럼 시험 문제나 평가처럼 들리는 어투는 피합니다.
 - 질문은 자연스러워야 하며, 문학적 수사를 과하게 쓰지 않습니다.`
 
@@ -705,6 +707,7 @@ function normalizeSummary(summary: string) {
 
       return sentences.length > 1 ? sentences : [line]
     })
+    .map((line) => normalizeQuestionEndingTone(line))
     .slice(0, 6)
 
   return (lines.length ? lines.join("\n") : FALLBACK_SUMMARY)
@@ -745,8 +748,27 @@ function parseJsonFromText(raw: string): unknown {
   return JSON.parse(jsonMatch ? jsonMatch[0] : raw)
 }
 
+function normalizeQuestionEndingTone(item: string) {
+  return item
+    .trim()
+    .replace(/무엇인가[?？]$/u, "무엇일까요?")
+    .replace(/누구인가[?？]$/u, "누구일까요?")
+    .replace(/어디인가[?？]$/u, "어디일까요?")
+    .replace(/언제인가[?？]$/u, "언제일까요?")
+    .replace(/왜인가[?？]$/u, "왜일까요?")
+    .replace(/있는가[?？]$/u, "있을까요?")
+    .replace(/없는가[?？]$/u, "없을까요?")
+    .replace(/되는가[?？]$/u, "될까요?")
+    .replace(/가능한가[?？]$/u, "가능할까요?")
+    .replace(/타당한가[?？]$/u, "타당할까요?")
+    .replace(/중요한가[?？]$/u, "중요할까요?")
+    .replace(/인가[?？]$/u, "일까요?")
+    .replace(/한가[?？]$/u, "할까요?")
+    .replace(/까[?？]$/u, "까요?")
+}
+
 function softenQuestionTone(item: string) {
-  return cleanGeneratedItem(item)
+  return normalizeQuestionEndingTone(cleanGeneratedItem(item))
     .replace(/무엇인가요[?？]$/u, "무엇일까요?")
     .replace(/누구인가요[?？]$/u, "누구일까요?")
     .replace(/어디인가요[?？]$/u, "어디일까요?")
@@ -760,6 +782,7 @@ function softenQuestionTone(item: string) {
     .replace(/중요한가요[?？]$/u, "중요할까요?")
     .replace(/인가요[?？]$/u, "일까요?")
     .replace(/한가요[?？]$/u, "할까요?")
+    .replace(/까[?？]$/u, "까요?")
 }
 
 function cleanReflectionLine(line: string) {
@@ -1706,9 +1729,12 @@ function normalizeQuestionCacheRecord(record: unknown): QuestionCacheHit | null 
   if (!record || typeof record !== "object") return null
 
   const payload = record as QuestionCacheRecord
-  const summary = typeof payload.summary === "string" ? payload.summary.trim() : ""
-  const questions = normalizeCacheStringArray(payload.questions)
-  const reflections = normalizeCacheStringArray(payload.reflections)
+  const summary =
+    typeof payload.summary === "string"
+      ? normalizeSummary(removeUnavailableDisclosure(payload.summary))
+      : ""
+  const questions = normalizeList(normalizeCacheStringArray(payload.questions), FALLBACK_QUESTIONS)
+  const reflections = normalizeReflections(normalizeCacheStringArray(payload.reflections), FALLBACK_REFLECTIONS)
 
   if (!summary || questions.length === 0 || reflections.length === 0) return null
 

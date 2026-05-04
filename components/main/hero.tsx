@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/context/AuthContext"
 import { useBgm } from "@/context/BgmContext"
 import { gtag } from "@/lib/gtag"
+import { logClientError } from "@/lib/client-error"
 
 const desert = {
   background: "#120b07",
@@ -425,6 +426,7 @@ export default function Hero() {
   const [lastSource, setLastSource] = useState("")
   const [savedQuestionKeys, setSavedQuestionKeys] = useState<Set<string>>(() => new Set())
   const [savedQuestionIds, setSavedQuestionIds] = useState<Map<string, string>>(() => new Map())
+  const [saveErrorMessage, setSaveErrorMessage] = useState("")
   const [showLogin, setShowLogin] = useState(false)
   const [landingIntroPhase, setLandingIntroPhase] = useState<LandingIntroPhase>("waiting")
   const [isMidnightInsight, setIsMidnightInsight] = useState(false)
@@ -809,8 +811,9 @@ export default function Hero() {
         if (cancelled) return
 
         if (error) {
-          console.error(error)
+          logClientError("hero.saved_questions.load", error)
           setSavedQuestionKeys(new Set())
+          setSaveErrorMessage("저장한 질문 상태를 불러오지 못했습니다.")
           return
         }
 
@@ -829,6 +832,7 @@ export default function Hero() {
 
         setSavedQuestionKeys(new Set(questionIds.keys()))
         setSavedQuestionIds(questionIds)
+        setSaveErrorMessage("")
         return
       }
 
@@ -836,6 +840,7 @@ export default function Hero() {
       if (!cancelled) {
         setSavedQuestionKeys(new Set())
         setSavedQuestionIds(new Map())
+        setSaveErrorMessage("")
       }
     }
 
@@ -894,6 +899,7 @@ export default function Hero() {
     setGeneratedQuestionMemory([])
     setReflections([])
     setErrorMessage("")
+    setSaveErrorMessage("")
     setOpenReflectionIndexes(new Set())
     setLastSource(source)
     setGenerationState("loading")
@@ -940,7 +946,7 @@ export default function Hero() {
     } catch (error) {
       window.clearTimeout(step1TimerRef.current)
       clearSlowLoadingNotice()
-      console.error(error)
+      logClientError("hero.questions.generate", error)
       const isTokenExhausted = isTokenExhaustedClientError(error)
 
       if (isTokenExhausted) {
@@ -977,6 +983,7 @@ export default function Hero() {
     setQuestions([])
     setReflections([])
     setErrorMessage("")
+    setSaveErrorMessage("")
     setOpenReflectionIndexes(new Set())
     setGenerationState("loading")
 
@@ -1010,7 +1017,7 @@ export default function Hero() {
     } catch (error) {
       window.clearTimeout(step1TimerRef.current)
       clearSlowLoadingNotice()
-      console.error(error)
+      logClientError("hero.questions.regenerate", error)
       const isTokenExhausted = isTokenExhaustedClientError(error)
 
       if (isTokenExhausted) {
@@ -1037,7 +1044,7 @@ export default function Hero() {
       })
 
       if (error) {
-        console.error(error)
+        logClientError("hero.history.save", error)
       }
 
       return
@@ -1179,7 +1186,7 @@ export default function Hero() {
         return
       }
     } catch (error) {
-      console.error(error)
+      logClientError("hero.feedback.submit", error)
       gtag.feedbackSubmitFailure({
         rating: feedbackRating,
         has_message: Boolean(message),
@@ -1234,10 +1241,12 @@ export default function Hero() {
         : await deleteQuery.eq("source", sourceToSave).eq("question", question)
 
       if (error) {
-        console.error(error)
+        logClientError("hero.question.unsave", error)
+        setSaveErrorMessage("저장 상태를 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.")
         return
       }
 
+      setSaveErrorMessage("")
       gtag.questionUnsave({ question_index: questionIndex })
       setSavedQuestionKeys((currentKeys) => {
         const nextKeys = new Set(currentKeys)
@@ -1262,10 +1271,12 @@ export default function Hero() {
       }).select("id").single()
 
       if (error) {
-        console.error(error)
+        logClientError("hero.question.save", error)
+        setSaveErrorMessage("질문을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.")
         return
       }
 
+      setSaveErrorMessage("")
       gtag.questionSave({ question_index: questionIndex })
       setSavedQuestionKeys((currentKeys) => new Set(currentKeys).add(questionKey))
       if (data && typeof data.id === "string") {
@@ -1340,14 +1351,16 @@ export default function Hero() {
           ])
 
           if (historyResponse.error) {
-            console.error(historyResponse.error)
+            logClientError("hero.pending_save.history", historyResponse.error)
           }
 
           if (savedQuestionResponse.error) {
-            console.error(savedQuestionResponse.error)
+            logClientError("hero.pending_save.question", savedQuestionResponse.error)
+            setSaveErrorMessage("로그인 후 질문 저장을 완료하지 못했습니다. 다시 저장해 주세요.")
             return
           }
 
+          setSaveErrorMessage("")
           setSavedQuestionKeys((currentKeys) => new Set(currentKeys).add(questionKey))
           if (savedQuestionResponse.data && typeof savedQuestionResponse.data.id === "string") {
             setSavedQuestionIds((currentIds) =>
@@ -2212,6 +2225,15 @@ export default function Hero() {
                 재생성
               </button>
             </div>
+            {saveErrorMessage && (
+              <p
+                role="status"
+                aria-live="polite"
+                className="mt-4 text-sm font-medium leading-[1.6] text-[#f5dfbd]/58"
+              >
+                {saveErrorMessage}
+              </p>
+            )}
             <ol className="mt-6 flex flex-col gap-8">
               {questions.map((q, i) => (
                 <li key={i} className="flex gap-3">

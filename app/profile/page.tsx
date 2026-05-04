@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext"
 import { useBgm } from "@/context/BgmContext"
 import { createClient } from "@/lib/supabase/client"
 import { gtag } from "@/lib/gtag"
+import { logClientError } from "@/lib/client-error"
 
 type SavedQuestion = {
   id: string
@@ -45,29 +46,8 @@ type DbSavedQuestionRow = {
 
 type ProfileTab = "history" | "saved"
 
-const savedQuestionsStorageKey = "qraft:saved-questions"
-const questionHistoryStorageKey = "qraft:question-history"
-
 const navButtonClass =
   "flex h-10 w-10 items-center justify-center border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.08] text-[#f5dfbd]/55 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-500 hover:border-[#d9ad73]/55 hover:text-[#f5dfbd]/90 focus:outline-none focus-visible:border-[#d9ad73]/70"
-
-const readStorageList = <T,>(key: string, version: number) => {
-  void version
-
-  if (typeof window === "undefined") return [] as T[]
-
-  const raw = window.localStorage.getItem(key)
-  if (!raw) return [] as T[]
-
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as T[]) : ([] as T[])
-  } catch {
-    return [] as T[]
-  }
-}
-
-const getScopedStorageKey = (key: string, userId?: string) => `${key}:${userId ?? "guest"}`
 
 const toStringList = (value: unknown) =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
@@ -133,16 +113,14 @@ const getHistoryTitle = (source: string) => {
 }
 
 export default function ProfilePage() {
-  const { user, signOut } = useAuth()
+  const { user, loading, signOut } = useAuth()
   const [activeTab, setActiveTab] = useState<ProfileTab>("history")
   const [openHistoryIds, setOpenHistoryIds] = useState<Set<string>>(() => new Set())
   const [history, setHistory] = useState<QuestionHistory[]>([])
   const [savedQuestions, setSavedQuestions] = useState<SavedQuestion[]>([])
-  const [dataVersion, setDataVersion] = useState(0)
+  const [profileErrorMessage, setProfileErrorMessage] = useState("")
   const supabase = useMemo(() => createClient(), [])
   const { bgmOn, toggleBgm } = useBgm()
-  const questionHistoryScopedKey = getScopedStorageKey(questionHistoryStorageKey, user?.id)
-  const savedQuestionsScopedKey = getScopedStorageKey(savedQuestionsStorageKey, user?.id)
 
   const profileName = getDisplayName(user)
   const profileImageUrl = getProfileImageUrl(user)
@@ -161,6 +139,16 @@ export default function ProfilePage() {
     let cancelled = false
 
     const loadProfileData = async () => {
+      if (loading) return
+
+      if (!user) {
+        setHistory([])
+        setSavedQuestions([])
+        setOpenHistoryIds(new Set())
+        setProfileErrorMessage("")
+        return
+      }
+
       if (user) {
         const [historyResponse, savedQuestionsResponse] = await Promise.all([
           supabase
@@ -176,14 +164,14 @@ export default function ProfilePage() {
         if (cancelled) return
 
         if (historyResponse.error) {
-          console.error(historyResponse.error)
+          logClientError("profile.history.load", historyResponse.error)
           setHistory([])
         } else {
           setHistory(((historyResponse.data ?? []) as DbQuestionHistoryRow[]).map(mapHistoryRow))
         }
 
         if (savedQuestionsResponse.error) {
-          console.error(savedQuestionsResponse.error)
+          logClientError("profile.saved_questions.load", savedQuestionsResponse.error)
           setSavedQuestions([])
         } else {
           setSavedQuestions(
@@ -191,14 +179,12 @@ export default function ProfilePage() {
           )
         }
 
+        setProfileErrorMessage(
+          historyResponse.error || savedQuestionsResponse.error
+            ? "프로필 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
+            : ""
+        )
         return
-      }
-
-      await Promise.resolve()
-
-      if (!cancelled) {
-        setHistory(readStorageList<QuestionHistory>(questionHistoryScopedKey, dataVersion))
-        setSavedQuestions(readStorageList<SavedQuestion>(savedQuestionsScopedKey, dataVersion))
       }
     }
 
@@ -207,7 +193,7 @@ export default function ProfilePage() {
     return () => {
       cancelled = true
     }
-  }, [dataVersion, questionHistoryScopedKey, savedQuestionsScopedKey, supabase, user])
+  }, [loading, supabase, user])
 
   const handleBgmToggle = () => {
     gtag.bgmToggle({
@@ -245,10 +231,12 @@ export default function ProfilePage() {
       const { error } = await supabase.from("question_history").delete().eq("id", id)
 
       if (error) {
-        console.error(error)
+        logClientError("profile.history.delete", error)
+        setProfileErrorMessage("히스토리를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.")
         return
       }
 
+      setProfileErrorMessage("")
       setHistory((currentHistory) => currentHistory.filter((item) => item.id !== id))
       setOpenHistoryIds((currentIds) => {
         const nextIds = new Set(currentIds)
@@ -257,15 +245,6 @@ export default function ProfilePage() {
       })
       return
     }
-
-    const nextHistory = history.filter((item) => item.id !== id)
-    window.localStorage.setItem(questionHistoryScopedKey, JSON.stringify(nextHistory))
-    setDataVersion((version) => version + 1)
-    setOpenHistoryIds((currentIds) => {
-      const nextIds = new Set(currentIds)
-      nextIds.delete(id)
-      return nextIds
-    })
   }
 
   const deleteSavedQuestion = async (id: string) => {
@@ -273,17 +252,15 @@ export default function ProfilePage() {
       const { error } = await supabase.from("saved_questions").delete().eq("id", id)
 
       if (error) {
-        console.error(error)
+        logClientError("profile.saved_question.delete", error)
+        setProfileErrorMessage("저장한 질문을 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.")
         return
       }
 
+      setProfileErrorMessage("")
       setSavedQuestions((currentQuestions) => currentQuestions.filter((item) => item.id !== id))
       return
     }
-
-    const nextQuestions = savedQuestions.filter((item) => item.id !== id)
-    window.localStorage.setItem(savedQuestionsScopedKey, JSON.stringify(nextQuestions))
-    setDataVersion((version) => version + 1)
   }
 
   const goBack = () => {
@@ -292,6 +269,33 @@ export default function ProfilePage() {
     } else {
       window.location.href = "/"
     }
+  }
+
+  const handleSignOut = async () => {
+    setProfileErrorMessage("")
+
+    try {
+      await signOut()
+    } catch (error) {
+      logClientError("profile.sign_out", error)
+      setProfileErrorMessage("로그아웃하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+    }
+  }
+
+  if (loading) {
+    return <ProfileStatusView eyebrow="Profile" title="로그인 상태를 확인하고 있습니다." />
+  }
+
+  if (!user) {
+    return (
+      <ProfileStatusView
+        eyebrow="Profile"
+        title="로그인이 필요합니다."
+        description="저장한 질문과 히스토리는 로그인 후 확인할 수 있습니다."
+        actionHref="/auth"
+        actionLabel="로그인하기"
+      />
+    )
   }
 
   return (
@@ -334,7 +338,7 @@ export default function ProfilePage() {
         <header className="flex items-center justify-end gap-4">
           <button
             type="button"
-            onClick={signOut}
+            onClick={handleSignOut}
             className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#f5dfbd]/42 transition-colors hover:text-[#f5dfbd]/80 focus:outline-none"
           >
             Logout
@@ -394,6 +398,14 @@ export default function ProfilePage() {
         </nav>
 
         <section className="mt-6 flex-1 pb-16">
+          {profileErrorMessage && (
+            <div className="mb-4 border border-[#d9ad73]/25 bg-[#f5dfbd]/[0.06] px-4 py-3">
+              <p className="text-sm font-medium leading-[1.6] text-[#f5dfbd]/68">
+                {profileErrorMessage}
+              </p>
+            </div>
+          )}
+
           {activeTab === "history" && (
             <div className="flex flex-col gap-4">
               {history.length === 0 ? (
@@ -518,6 +530,55 @@ function EmptyState({ text }: { text: string }) {
     <div className="border border-[#d9ad73]/15 bg-[#f5dfbd]/[0.04] p-8 text-center">
       <p className="text-sm font-medium text-[#f5dfbd]/48">{text}</p>
     </div>
+  )
+}
+
+function ProfileStatusView({
+  eyebrow,
+  title,
+  description,
+  actionHref,
+  actionLabel,
+}: {
+  eyebrow: string
+  title: string
+  description?: string
+  actionHref?: string
+  actionLabel?: string
+}) {
+  return (
+    <main className="min-h-screen bg-[#120b07] text-[#f5dfbd]">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(217,173,115,0.16),transparent_34%),radial-gradient(circle_at_75%_38%,rgba(141,79,49,0.22),transparent_32%),#120b07]" />
+      <div className="relative mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-6 text-center">
+        <p className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2ad7c]/50">
+          {eyebrow}
+        </p>
+        <h1 className="mt-4 text-2xl font-medium leading-tight text-[#f5dfbd]/88">
+          {title}
+        </h1>
+        {description && (
+          <p className="mt-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/52">
+            {description}
+          </p>
+        )}
+        <div className="mt-7 flex items-center justify-center gap-3">
+          {actionHref && actionLabel && (
+            <Link
+              href={actionHref}
+              className="border border-[#d9ad73]/35 bg-[#f5dfbd]/[0.08] px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#f5dfbd]/75 transition-colors hover:border-[#d9ad73]/60 hover:bg-[#f5dfbd]/[0.12] focus:outline-none"
+            >
+              {actionLabel}
+            </Link>
+          )}
+          <Link
+            href="/"
+            className="px-3 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#f5dfbd]/35 transition-colors hover:text-[#f5dfbd]/65 focus:outline-none"
+          >
+            홈으로
+          </Link>
+        </div>
+      </div>
+    </main>
   )
 }
 

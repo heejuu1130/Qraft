@@ -5,6 +5,7 @@ import type { Session, User } from "@supabase/supabase-js"
 import { gtag, type LoginProvider } from "@/lib/gtag"
 import { mixpanelIdentify, mixpanelReset } from "@/lib/mixpanel"
 import { createClient } from "@/lib/supabase/client"
+import { clearStoredQuestionData } from "@/lib/client-storage"
 
 type AuthContextType = {
   user: User | null
@@ -93,6 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (event === "SIGNED_OUT") {
+        clearStoredQuestionData()
         mixpanelReset()
       }
 
@@ -105,6 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [supabase])
 
   const signOut = async () => {
+    clearStoredQuestionData()
     await supabase.auth.signOut()
   }
 

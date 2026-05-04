@@ -842,6 +842,28 @@ type TopicGroundingDecision = {
   useWebSearch: boolean
 }
 
+const topicGroundingReasons = new Set<string>([
+  "empty",
+  "numbers_or_dates",
+  "latin_entity",
+  "factual_keyword",
+  "external_reference",
+  "named_work_marker",
+  "mixed_entity_signal",
+  "example_topic",
+  "gemini_router_abstract",
+  "gemini_router_current_fact",
+  "gemini_router_external_reference",
+  "gemini_router_factual",
+  "short_or_single_name",
+  "spaced_name_or_title",
+  "semantic_factual_prototype",
+  "semantic_abstract_prototype",
+  "abstract_latin_concept",
+  "abstract_concept",
+  "concept",
+])
+
 type GeminiRouterRoute = "abstract_topic" | "factual_topic" | "current_fact" | "external_reference" | "unclear"
 
 type GeminiRouterDecision = {
@@ -854,6 +876,29 @@ function getSourceKind(source: string): SourceKind {
   if (isYouTubeUrl(source)) return "youtube"
   if (isUrl(source)) return "url"
   return source.length < 100 ? "topic" : "text"
+}
+
+function getCachedSystemPrompt(text: string) {
+  return [
+    {
+      type: "text" as const,
+      text,
+      cache_control: { type: "ephemeral" as const },
+    },
+  ]
+}
+
+function getCachedTopicGroundingDecision(cachedResult: QuestionCacheHit): TopicGroundingDecision | null {
+  if (!cachedResult.routerReason || !topicGroundingReasons.has(cachedResult.routerReason)) {
+    return null
+  }
+
+  return {
+    reason: cachedResult.routerReason as TopicGroundingReason,
+    semanticScoreAbstract: null,
+    semanticScoreFactual: null,
+    useWebSearch: cachedResult.useWebSearch ?? false,
+  }
 }
 
 function normalizeRouterText(value: string) {
@@ -1751,7 +1796,7 @@ export async function POST(request: Request) {
         model: sonnetGenerationModel,
         max_tokens: regenerationMaxTokens,
         temperature: 0.35,
-        system: REGENERATE_SYSTEM_PROMPT,
+        system: getCachedSystemPrompt(REGENERATE_SYSTEM_PROMPT),
         messages: [{ role: "user", content: regenerateInput }],
       })
 
@@ -1819,7 +1864,7 @@ export async function POST(request: Request) {
           model: sonnetGenerationModel,
           max_tokens: regenerationMaxTokens,
           temperature: 0.45,
-          system: REGENERATE_SYSTEM_PROMPT,
+          system: getCachedSystemPrompt(REGENERATE_SYSTEM_PROMPT),
           messages: [
             {
               role: "user",
@@ -1873,28 +1918,20 @@ export async function POST(request: Request) {
   let content: string
   let contentResolved = true
   const sourceKind = getSourceKind(source)
-  const topicGroundingDecision =
-    sourceKind === "topic"
-      ? sourceOrigin === "example_topic"
-        ? getExampleTopicGroundingDecision(source)
-        : await resolveTopicGroundingDecision(source)
-      : null
-  const forceTopicWebSearch = topicGroundingDecision?.useWebSearch ?? false
   const cacheSourceKey = getQuestionCacheSourceKey(source, sourceKind)
-  const cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, forceTopicWebSearch)
-  let factProvider: "claude_web_search" | null = null
-  let factGroundingStatus: "partial" | null = null
 
-  if (cacheSourceKey && cacheExpiresAt) {
+  if (cacheSourceKey) {
     const cachedResult = await getQuestionGenerationCache(cacheSourceKey)
 
     if (cachedResult) {
+      const cachedTopicGroundingDecision = getCachedTopicGroundingDecision(cachedResult)
+
       await recordQuestionGenerationEvent({
         mode: "generate",
         sourceKind,
         sourceText: source,
-        topicGroundingDecision,
-        useWebSearch: cachedResult.useWebSearch ?? forceTopicWebSearch,
+        topicGroundingDecision: cachedTopicGroundingDecision,
+        useWebSearch: cachedResult.useWebSearch,
         factProvider: cachedResult.factProvider,
         factGroundingStatus: cachedResult.factGroundingStatus,
         generationSuccess: true,
@@ -1914,6 +1951,17 @@ export async function POST(request: Request) {
       })
     }
   }
+
+  const topicGroundingDecision =
+    sourceKind === "topic"
+      ? sourceOrigin === "example_topic"
+        ? getExampleTopicGroundingDecision(source)
+        : await resolveTopicGroundingDecision(source)
+      : null
+  const forceTopicWebSearch = topicGroundingDecision?.useWebSearch ?? false
+  const cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, forceTopicWebSearch)
+  let factProvider: "claude_web_search" | null = null
+  let factGroundingStatus: "partial" | null = null
 
   if (sourceKind === "youtube") {
     const [readerResult, metadataResult] = await Promise.allSettled([
@@ -1975,7 +2023,7 @@ export async function POST(request: Request) {
       model: getInitialGenerationModel(sourceKind, forceTopicWebSearch),
       max_tokens: forceTopicWebSearch ? groundedGenerationMaxTokens : generationMaxTokens,
       temperature: forceTopicWebSearch ? 0.25 : 0.35,
-      system: SYSTEM_PROMPT,
+      system: getCachedSystemPrompt(SYSTEM_PROMPT),
       messages: [{ role: "user", content: modelInput }],
       ...(forceTopicWebSearch
         ? {

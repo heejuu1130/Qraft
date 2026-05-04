@@ -25,8 +25,43 @@ const pendingLoginProviderStorageKey = "qraft:pending-login-provider"
 const visitedStorageKey = "qraft:ga-visited"
 const returningVisitSentStorageKey = "qraft:ga-returning-visit-sent"
 
+type ClientStorageName = "localStorage" | "sessionStorage"
+
 const isLoginProvider = (value: unknown): value is LoginProvider =>
   value === "google" || value === "kakao"
+
+const warnStorageSkipped = (label: string, error: unknown) => {
+  if (process.env.NODE_ENV !== "production") {
+    console.warn(label, error)
+  }
+}
+
+const readStorageItem = (storageName: ClientStorageName, key: string) => {
+  try {
+    return window[storageName].getItem(key)
+  } catch (error) {
+    warnStorageSkipped(`${storageName} read skipped`, error)
+    return null
+  }
+}
+
+const writeStorageItem = (storageName: ClientStorageName, key: string, value: string) => {
+  try {
+    window[storageName].setItem(key, value)
+    return true
+  } catch (error) {
+    warnStorageSkipped(`${storageName} write skipped`, error)
+    return false
+  }
+}
+
+const removeStorageItem = (storageName: ClientStorageName, key: string) => {
+  try {
+    window[storageName].removeItem(key)
+  } catch (error) {
+    warnStorageSkipped(`${storageName} remove skipped`, error)
+  }
+}
 
 const getAuthProvider = (session: Session | null) => {
   const sessionProvider = session?.user.app_metadata.provider
@@ -46,7 +81,7 @@ const identifyMixpanelUser = (session: Session | null) => {
 const trackPendingLoginSuccess = (session: Session | null) => {
   if (!session) return
 
-  const pendingProvider = window.localStorage.getItem(pendingLoginProviderStorageKey)
+  const pendingProvider = readStorageItem("localStorage", pendingLoginProviderStorageKey)
   const sessionProvider = getAuthProvider(session)
   const provider = isLoginProvider(pendingProvider)
     ? pendingProvider
@@ -55,19 +90,20 @@ const trackPendingLoginSuccess = (session: Session | null) => {
   if (!provider) return
 
   gtag.loginSuccess(provider)
-  window.localStorage.removeItem(pendingLoginProviderStorageKey)
+  removeStorageItem("localStorage", pendingLoginProviderStorageKey)
 }
 
 const trackReturningVisit = () => {
-  const hasVisited = window.localStorage.getItem(visitedStorageKey) === "true"
-  const alreadySent = window.sessionStorage.getItem(returningVisitSentStorageKey) === "true"
+  const hasVisited = readStorageItem("localStorage", visitedStorageKey) === "true"
+  const alreadySent = readStorageItem("sessionStorage", returningVisitSentStorageKey) === "true"
 
   if (hasVisited && !alreadySent) {
-    gtag.returningVisit()
-    window.sessionStorage.setItem(returningVisitSentStorageKey, "true")
+    if (gtag.returningVisit()) {
+      writeStorageItem("sessionStorage", returningVisitSentStorageKey, "true")
+    }
   }
 
-  window.localStorage.setItem(visitedStorageKey, "true")
+  writeStorageItem("localStorage", visitedStorageKey, "true")
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

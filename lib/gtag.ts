@@ -3,30 +3,56 @@ import { mixpanelTrack } from "@/lib/mixpanel"
 declare global {
   interface Window {
     dataLayer?: unknown[]
-    gtag: (...args: unknown[]) => void
+    gtag?: (...args: unknown[]) => void
   }
 }
 
 export type LoginProvider = "google" | "kakao"
 
+const googleAnalyticsId = process.env.NEXT_PUBLIC_GA_ID || "G-T3TCC34TS8"
+
+function warnAnalyticsSkipped(label: string, error: unknown) {
+  if (process.env.NODE_ENV !== "production") {
+    console.warn(label, error)
+  }
+}
+
+function ensureGtagQueue() {
+  if (!Array.isArray(window.dataLayer)) {
+    window.dataLayer = []
+  }
+
+  if (typeof window.gtag === "function") return
+
+  window.gtag = (...args: unknown[]) => {
+    if (!Array.isArray(window.dataLayer)) {
+      window.dataLayer = []
+    }
+
+    window.dataLayer.push(args)
+  }
+}
+
 function send(name: string, params?: Record<string, unknown>) {
-  if (typeof window === "undefined") return
+  if (typeof window === "undefined") return false
 
   try {
     mixpanelTrack(name, params)
   } catch (error) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn("Mixpanel tracking skipped", error)
-    }
+    warnAnalyticsSkipped("Mixpanel tracking skipped", error)
   }
 
-  if (typeof window.gtag === "function") {
-    window.gtag("event", name, params)
-    return
+  try {
+    ensureGtagQueue()
+    window.gtag?.("event", name, {
+      ...(googleAnalyticsId ? { send_to: googleAnalyticsId } : {}),
+      ...(params ?? {}),
+    })
+    return true
+  } catch (error) {
+    warnAnalyticsSkipped("Google Analytics tracking skipped", error)
+    return false
   }
-
-  window.dataLayer = window.dataLayer ?? []
-  window.dataLayer.push(["event", name, params])
 }
 
 export const gtag = {
@@ -48,7 +74,12 @@ export const gtag = {
   loginStart: (provider: LoginProvider) => {
     send("login_start", { method: provider })
     if (typeof window === "undefined") return
-    window.localStorage.setItem("qraft:pending-login-provider", provider)
+
+    try {
+      window.localStorage.setItem("qraft:pending-login-provider", provider)
+    } catch (error) {
+      warnAnalyticsSkipped("Pending login provider storage skipped", error)
+    }
   },
   loginSuccess: (provider: LoginProvider) => {
     send("login", { method: provider })

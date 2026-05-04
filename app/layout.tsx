@@ -20,6 +20,8 @@ export const metadata: Metadata = {
   description: "질문으로 시작하는 사유",
 };
 
+const googleAnalyticsId = process.env.NEXT_PUBLIC_GA_ID || "G-T3TCC34TS8";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -37,7 +39,7 @@ export default function RootLayout({
         <AuthProvider>
           <BgmProvider>{children}</BgmProvider>
         </AuthProvider>
-        <GoogleAnalytics gaId="G-T3TCC34TS8" />
+        {googleAnalyticsId ? <GoogleAnalytics gaId={googleAnalyticsId} /> : null}
       </body>
     </html>
   );

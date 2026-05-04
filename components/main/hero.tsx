@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext"
 import { useBgm } from "@/context/BgmContext"
 import { gtag } from "@/lib/gtag"
 import { logClientError } from "@/lib/client-error"
+import { normalizeQuestionEndingTone, normalizeQuestionListTone } from "@/lib/question-tone"
 
 const desert = {
   background: "#120b07",
@@ -389,7 +390,11 @@ const getInitialResultState = () => {
       return null
     }
 
-    return result
+    return {
+      ...result,
+      questions: normalizeQuestionListTone(result.questions),
+      generatedQuestions: normalizeQuestionListTone(result.generatedQuestions ?? result.questions),
+    }
   } catch {
     return null
   }
@@ -826,7 +831,7 @@ export default function Hero() {
               typeof item.question === "string"
           )
           .forEach((item) => {
-            questionIds.set(getQuestionKey(item.source, item.question), item.id)
+            questionIds.set(getQuestionKey(item.source, normalizeQuestionEndingTone(item.question)), item.id)
           })
 
         setSavedQuestionKeys(new Set(questionIds.keys()))
@@ -914,7 +919,11 @@ export default function Hero() {
       )
 
       const payload = await payloadPromise
-      const minimumDuration = payload.cacheHit ? cachedRefiningDuration : refiningDuration
+      const normalizedPayload = {
+        ...payload,
+        questions: normalizeQuestionListTone(payload.questions),
+      }
+      const minimumDuration = normalizedPayload.cacheHit ? cachedRefiningDuration : refiningDuration
       const remainingDuration = Math.max(0, minimumDuration - (window.performance.now() - generationStartedAt))
 
       if (remainingDuration > 0) {
@@ -926,11 +935,11 @@ export default function Hero() {
       setLoadingStep(2)
       await wait(finalRevealDuration)
 
-      setSummary(payload.summary)
-      setQuestions(payload.questions)
-      setGeneratedQuestionMemory(mergeQuestionMemory(payload.questions))
-      setReflections(payload.reflections)
-      await saveHistory(source, payload)
+      setSummary(normalizedPayload.summary)
+      setQuestions(normalizedPayload.questions)
+      setGeneratedQuestionMemory(mergeQuestionMemory(normalizedPayload.questions))
+      setReflections(normalizedPayload.reflections)
+      await saveHistory(source, normalizedPayload)
       setLoadingNotice("")
       setGenerationState("ready")
       gtag.questionGenerateSuccess({
@@ -938,9 +947,9 @@ export default function Hero() {
         source_type: getSourceType(source),
         source_origin: isExampleTopic ? "example_topic" : "manual",
         source_length_bucket: getLengthBucket(source),
-        cache_hit: Boolean(payload.cacheHit),
-        question_count: payload.questions.length,
-        reflection_count: payload.reflections.length,
+        cache_hit: Boolean(normalizedPayload.cacheHit),
+        question_count: normalizedPayload.questions.length,
+        reflection_count: normalizedPayload.reflections.length,
       })
     } catch (error) {
       window.clearTimeout(step1TimerRef.current)
@@ -996,21 +1005,22 @@ export default function Hero() {
       )
 
       const [payload] = await Promise.all([payloadPromise, wait(regenerateDuration)])
+      const normalizedQuestions = normalizeQuestionListTone(payload.questions)
 
       window.clearTimeout(step1TimerRef.current)
       clearSlowLoadingNotice()
       setLoadingStep(2)
       await wait(finalRevealDuration)
 
-      setQuestions(payload.questions)
+      setQuestions(normalizedQuestions)
       setGeneratedQuestionMemory((currentQuestions) =>
-        mergeQuestionMemory(previousQuestions, currentQuestions, payload.questions)
+        mergeQuestionMemory(previousQuestions, currentQuestions, normalizedQuestions)
       )
       setReflections(payload.reflections)
       setLoadingNotice("")
       setGenerationState("ready")
       gtag.questionRegenerateSuccess({
-        question_count: payload.questions.length,
+        question_count: normalizedQuestions.length,
         reflection_count: payload.reflections.length,
       })
     } catch (error) {
@@ -1212,9 +1222,10 @@ export default function Hero() {
     questionIndex: number,
     overrideState?: Pick<PendingSaveState, "source" | "summary">
   ) => {
+    const questionToSave = normalizeQuestionEndingTone(question)
     const sourceToSave = overrideState?.source ?? lastSource
     const summaryToSave = overrideState?.summary ?? summary
-    const questionKey = getQuestionKey(sourceToSave, question)
+    const questionKey = getQuestionKey(sourceToSave, questionToSave)
     gtag.questionSaveIntent({ signed_in: Boolean(user), question_index: questionIndex })
 
     if (!user) {
@@ -1237,7 +1248,7 @@ export default function Hero() {
       const deleteQuery = supabase.from("saved_questions").delete()
       const { error } = savedQuestionId
         ? await deleteQuery.eq("id", savedQuestionId)
-        : await deleteQuery.eq("source", sourceToSave).eq("question", question)
+        : await deleteQuery.eq("source", sourceToSave).eq("question", questionToSave)
 
       if (error) {
         logClientError("hero.question.unsave", error)
@@ -1265,7 +1276,7 @@ export default function Hero() {
         user_id: user.id,
         source: sourceToSave,
         summary: summaryToSave,
-        question,
+        question: questionToSave,
         question_index: questionIndex,
       }).select("id").single()
 
@@ -1295,12 +1306,15 @@ export default function Hero() {
 
     try {
       const pendingSave = JSON.parse(rawPendingSave) as PendingSaveState
-      const question = pendingSave.questions[pendingSave.questionIndex - 1]
+      const pendingSaveQuestions = Array.isArray(pendingSave.questions)
+        ? normalizeQuestionListTone(pendingSave.questions)
+        : []
+      const question = pendingSaveQuestions[pendingSave.questionIndex - 1]
 
       if (
         !pendingSave.source ||
         !pendingSave.summary ||
-        !Array.isArray(pendingSave.questions) ||
+        pendingSaveQuestions.length === 0 ||
         !Array.isArray(pendingSave.reflections) ||
         !question
       ) {
@@ -1312,8 +1326,8 @@ export default function Hero() {
       timeout = window.setTimeout(() => {
         setLastSource(pendingSave.source)
         setSummary(pendingSave.summary)
-        setQuestions(pendingSave.questions)
-        setGeneratedQuestionMemory(mergeQuestionMemory(pendingSave.questions))
+        setQuestions(pendingSaveQuestions)
+        setGeneratedQuestionMemory(mergeQuestionMemory(pendingSaveQuestions))
         setReflections(pendingSave.reflections)
         setSummaryExpanded(false)
         setOpenReflectionIndexes(new Set())
@@ -1325,8 +1339,8 @@ export default function Hero() {
           JSON.stringify({
             source: pendingSave.source,
             summary: pendingSave.summary,
-            questions: pendingSave.questions,
-            generatedQuestions: pendingSave.questions,
+            questions: pendingSaveQuestions,
+            generatedQuestions: pendingSaveQuestions,
             reflections: pendingSave.reflections,
           } satisfies RestoredResultState)
         )
@@ -1337,7 +1351,7 @@ export default function Hero() {
               user_id: user.id,
               source: pendingSave.source,
               summary: pendingSave.summary,
-              questions: pendingSave.questions,
+              questions: pendingSaveQuestions,
               reflections: pendingSave.reflections,
             }),
             supabase.from("saved_questions").insert({

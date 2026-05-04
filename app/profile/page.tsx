@@ -7,6 +7,7 @@ import { useBgm } from "@/context/BgmContext"
 import { createClient } from "@/lib/supabase/client"
 import { gtag } from "@/lib/gtag"
 import { logClientError } from "@/lib/client-error"
+import { normalizeQuestionEndingTone, normalizeQuestionListTone } from "@/lib/question-tone"
 
 type SavedQuestion = {
   id: string
@@ -56,7 +57,7 @@ const mapHistoryRow = (row: DbQuestionHistoryRow): QuestionHistory => ({
   id: row.id,
   source: row.source,
   summary: row.summary,
-  questions: toStringList(row.questions),
+  questions: normalizeQuestionListTone(toStringList(row.questions)),
   reflections: toStringList(row.reflections),
   generatedAt: row.created_at,
 })
@@ -65,7 +66,7 @@ const mapSavedQuestionRow = (row: DbSavedQuestionRow): SavedQuestion => ({
   id: row.id,
   source: row.source,
   summary: row.summary ?? "",
-  question: row.question,
+  question: normalizeQuestionEndingTone(row.question),
   questionIndex: row.question_index,
   savedAt: row.created_at,
 })

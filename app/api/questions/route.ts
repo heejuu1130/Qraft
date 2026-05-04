@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { createHash } from "crypto"
 import { createRouteClient } from "@/lib/supabase/route"
+import { normalizeQuestionEndingTone } from "@/lib/question-tone"
 
 const client = new Anthropic({ timeout: 30000 })
 const sonnetGenerationModel = "claude-sonnet-4-6"
@@ -748,41 +749,8 @@ function parseJsonFromText(raw: string): unknown {
   return JSON.parse(jsonMatch ? jsonMatch[0] : raw)
 }
 
-function normalizeQuestionEndingTone(item: string) {
-  return item
-    .trim()
-    .replace(/무엇인가[?？]$/u, "무엇일까요?")
-    .replace(/누구인가[?？]$/u, "누구일까요?")
-    .replace(/어디인가[?？]$/u, "어디일까요?")
-    .replace(/언제인가[?？]$/u, "언제일까요?")
-    .replace(/왜인가[?？]$/u, "왜일까요?")
-    .replace(/있는가[?？]$/u, "있을까요?")
-    .replace(/없는가[?？]$/u, "없을까요?")
-    .replace(/되는가[?？]$/u, "될까요?")
-    .replace(/가능한가[?？]$/u, "가능할까요?")
-    .replace(/타당한가[?？]$/u, "타당할까요?")
-    .replace(/중요한가[?？]$/u, "중요할까요?")
-    .replace(/인가[?？]$/u, "일까요?")
-    .replace(/한가[?？]$/u, "할까요?")
-    .replace(/까[?？]$/u, "까요?")
-}
-
 function softenQuestionTone(item: string) {
   return normalizeQuestionEndingTone(cleanGeneratedItem(item))
-    .replace(/무엇인가요[?？]$/u, "무엇일까요?")
-    .replace(/누구인가요[?？]$/u, "누구일까요?")
-    .replace(/어디인가요[?？]$/u, "어디일까요?")
-    .replace(/언제인가요[?？]$/u, "언제일까요?")
-    .replace(/왜인가요[?？]$/u, "왜일까요?")
-    .replace(/있는가요[?？]$/u, "있을까요?")
-    .replace(/없는가요[?？]$/u, "없을까요?")
-    .replace(/되는가요[?？]$/u, "될까요?")
-    .replace(/가능한가요[?？]$/u, "가능할까요?")
-    .replace(/타당한가요[?？]$/u, "타당할까요?")
-    .replace(/중요한가요[?？]$/u, "중요할까요?")
-    .replace(/인가요[?？]$/u, "일까요?")
-    .replace(/한가요[?？]$/u, "할까요?")
-    .replace(/까[?？]$/u, "까요?")
 }
 
 function cleanReflectionLine(line: string) {

@@ -259,26 +259,7 @@ const tokenExhaustedNoticeDuration = 1800
 const questionHistoryStorageKey = "qraft:question-history"
 const pendingSaveStorageKey = "qraft:pending-save"
 const currentResultStorageKey = "qraft:current-result"
-const legacyLandingVisitSentStorageKey = "qraft:ga-landing-visit-sent"
-const landingVisitSentStorageKey = "qraft:ga-landing-visit-sent:v2"
 const feedbackRatingOptions = [1, 2, 3, 4, 5] as const
-
-const hasLandingVisitBeenSent = () => {
-  try {
-    return window.sessionStorage.getItem(landingVisitSentStorageKey) === "true"
-  } catch {
-    return false
-  }
-}
-
-const markLandingVisitSent = () => {
-  try {
-    window.sessionStorage.setItem(legacyLandingVisitSentStorageKey, "true")
-    window.sessionStorage.setItem(landingVisitSentStorageKey, "true")
-  } catch {
-    // Storage can be unavailable in strict browser modes; analytics must not block the page.
-  }
-}
 
 const wait = (duration: number) =>
   new Promise<void>((resolve) => {
@@ -467,6 +448,7 @@ export default function Hero() {
   const ctaSectionRef = useRef<HTMLElement>(null)
   const feedbackWidgetRef = useRef<HTMLDivElement>(null)
   const landingStartedAtRef = useRef<number | null>(null)
+  const landingVisitSentRef = useRef(false)
   const questionInputFocusSentRef = useRef(false)
   const landingSectionViewSentRef = useRef<Set<string>>(new Set())
   const pendingSaveRestoredRef = useRef(false)
@@ -476,11 +458,9 @@ export default function Hero() {
   useEffect(() => {
     landingStartedAtRef.current = window.performance.now()
 
-    if (hasLandingVisitBeenSent()) return
+    if (landingVisitSentRef.current) return
 
-    if (gtag.landingVisit()) {
-      markLandingVisitSent()
-    }
+    landingVisitSentRef.current = gtag.landingVisit()
   }, [])
 
   useEffect(() => {

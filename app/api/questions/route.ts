@@ -23,7 +23,7 @@ const cacheFreshnessTtlMs = 12 * 60 * 60 * 1000
 const cacheFactualTopicTtlMs = 24 * 60 * 60 * 1000
 const cacheTopicTtlMs = 3 * 24 * 60 * 60 * 1000
 const cacheLinkTtlMs = 7 * 24 * 60 * 60 * 1000
-const questionCacheVersion = "v6"
+const questionCacheVersion = "v7"
 const factualTopicKeywords = [
   "ceo",
   "앱",
@@ -667,23 +667,23 @@ function buildUngroundedTopicFallback(source: string) {
 
   return {
     summary: [
-      `${subject}에 대해 확인되지 않은 사실을 단정하지 않고, 먼저 무엇을 알아야 하는지부터 분리합니다.`,
-      "지금 다룰 수 있는 것은 확정된 설명이 아니라, 사실 확인과 해석 사이의 경계입니다.",
-      "좋은 질문은 성급한 결론보다 어떤 근거가 필요한지 드러내는 데서 시작됩니다.",
+      `${subject}은 하나의 답보다 여러 관점을 함께 놓을 때 더 선명해지는 주제입니다.`,
+      "처음에는 단순한 단어처럼 보여도, 그 안에는 경험과 가치, 관계와 시간의 층위가 겹쳐 있을 수 있습니다.",
+      "좋은 질문은 빠른 결론보다 어떤 기준으로 바라볼지를 먼저 드러냅니다.",
       "",
-      "1. 쟁점: 이 주제에서 사실과 인상을 어떻게 구분할 수 있을까요?",
-      "2. 변화: 추가 정보가 확인되면 판단의 방향은 어떻게 달라질 수 있을까요?",
-      "3. 생각할 점: 모르는 것을 인정하면서도 사유를 멈추지 않는 태도는 무엇일까요?",
+      "1. 쟁점: 이 주제를 바라볼 때 먼저 구분해야 할 관점은 무엇일까요?",
+      "2. 변화: 맥락이나 시간이 달라지면 이 주제의 의미는 어떻게 바뀔까요?",
+      "3. 생각할 점: 익숙한 판단 뒤에 남는 질문은 무엇일까요?",
     ].join("\n"),
     questions: [
-      `${subject}에 대해 먼저 확인해야 할 사실과 아직 해석으로 남겨야 할 부분은 어떻게 나눌 수 있을까요?`,
-      `${subject}를 둘러싼 판단이 성급해지지 않으려면 어떤 근거가 가장 먼저 필요할까요?`,
-      `${subject}를 모른다고 말하는 순간에도 계속 생각해볼 수 있는 질문은 무엇일까요?`,
+      `${subject}을 바라볼 때 가장 먼저 나누어 보아야 할 관점이나 기준은 무엇일까요?`,
+      `${subject}에 대한 생각은 개인의 경험, 사회적 맥락, 시간의 변화 속에서 어떻게 달라질 수 있을까요?`,
+      `${subject}을 둘러싼 익숙한 판단 뒤에는 어떤 기대나 불편함이 숨어 있을까요?`,
     ],
     reflections: [
-      "정보가 부족한 상태에서 가장 위험한 것은 빈칸을 그럴듯한 이야기로 채우는 일일지도 모릅니다. 모르는 부분을 남겨두는 태도는 답을 미루는 것이 아니라, 생각의 바닥을 무너지지 않게 하는 방식처럼 보입니다.",
-      "근거가 먼저인지 판단이 먼저인지에 따라 같은 주제도 전혀 다르게 보입니다. 빠른 확신은 편하지만, 때로는 가장 중요한 질문을 지나치게 만들기도 합니다.",
-      "모른다는 말은 사유의 실패가 아니라 출발점일 수 있습니다. 지금 필요한 것은 결론을 꾸미는 일이 아니라, 어떤 사실을 확인해야 이 주제가 제대로 보이는지 묻는 일일지도 모릅니다.",
+      "관점을 먼저 나누면 같은 주제도 덜 납작하게 보입니다. 내가 무엇을 중요하게 여기는지에 따라 문제의 중심이 전혀 다른 곳으로 옮겨갈 수 있습니다.",
+      "어떤 생각은 주제 자체보다 그 주제를 만난 시점과 환경에 더 크게 흔들립니다. 시간이 지난 뒤에도 같은 의미로 남을지 묻는 순간, 판단은 조금 느려지고 깊어집니다.",
+      "익숙한 판단은 편하지만 그만큼 많은 질문을 생략하게 만들기도 합니다. 당연해 보이는 반응 뒤에 무엇을 기대하고 무엇을 피하려 했는지 남겨볼 수 있습니다.",
     ],
   }
 }
@@ -812,6 +812,71 @@ function normalizeReflections(items: string[], fallback: string[]) {
       .slice(0, 3),
     ...fallback,
   ].slice(0, 3)
+}
+
+type ParsedQuestionPayload = {
+  hasCompleteModelPayload: boolean
+  questions: string[]
+  reflections: string[]
+  summary: string
+}
+
+function parseQuestionPayload(raw: string): ParsedQuestionPayload {
+  let summary = FALLBACK_SUMMARY
+  let questions: string[] = FALLBACK_QUESTIONS
+  let reflections: string[] = FALLBACK_REFLECTIONS
+  let hasCompleteModelPayload = false
+
+  try {
+    const parsed = parseJsonFromText(raw)
+
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every((q) => typeof q === "string")
+    ) {
+      questions = parsed as string[]
+    } else if (
+      parsed &&
+      typeof parsed === "object" &&
+      "summary" in parsed &&
+      "questions" in parsed
+    ) {
+      const payload = parsed as { summary?: unknown; questions?: unknown; reflections?: unknown }
+
+      if (typeof payload.summary === "string" && payload.summary.trim()) {
+        summary = normalizeSummary(removeUnavailableDisclosure(payload.summary))
+      }
+
+      if (
+        Array.isArray(payload.questions) &&
+        payload.questions.length > 0 &&
+        payload.questions.every((q) => typeof q === "string")
+      ) {
+        questions = payload.questions
+      }
+
+      if (
+        Array.isArray(payload.reflections) &&
+        payload.reflections.length > 0 &&
+        payload.reflections.every((reflection) => typeof reflection === "string")
+      ) {
+        reflections = payload.reflections
+      }
+
+      hasCompleteModelPayload =
+        typeof payload.summary === "string" &&
+        payload.summary.trim().length > 0 &&
+        Array.isArray(payload.questions) &&
+        payload.questions.length > 0 &&
+        payload.questions.every((q) => typeof q === "string") &&
+        Array.isArray(payload.reflections) &&
+        payload.reflections.length > 0 &&
+        payload.reflections.every((reflection) => typeof reflection === "string")
+    }
+  } catch {}
+
+  return { hasCompleteModelPayload, questions, reflections, summary }
 }
 
 type SourceKind = "url" | "youtube" | "topic" | "text"
@@ -1379,6 +1444,25 @@ function buildModelInput({
       ? `${sourceKind === "topic" ? "검색 기반 참고 내용" : "참고 내용"}:\n${usableContent}`
       : contentGuide,
   ].join("\n\n")
+}
+
+async function generateTopicRawWithoutWebSearch(source: string) {
+  const retryInput = buildModelInput({
+    source,
+    content: source,
+    sourceKind: "topic",
+    resolved: false,
+    forceWebSearch: false,
+  })
+  const retryResponse = await client.messages.create({
+    model: getInitialGenerationModel("topic", false),
+    max_tokens: generationMaxTokens,
+    temperature: 0.35,
+    system: getCachedSystemPrompt(SYSTEM_PROMPT),
+    messages: [{ role: "user", content: retryInput }],
+  })
+
+  return getResponseText(retryResponse.content)
 }
 
 function getInitialGenerationModel(sourceKind: SourceKind, forceWebSearch: boolean) {
@@ -1960,9 +2044,11 @@ export async function POST(request: Request) {
         : await resolveTopicGroundingDecision(source)
       : null
   const forceTopicWebSearch = topicGroundingDecision?.useWebSearch ?? false
-  const cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, forceTopicWebSearch)
+  let cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, forceTopicWebSearch)
   let factProvider: "claude_web_search" | null = null
   let factGroundingStatus: "partial" | null = null
+  let responseUseWebSearch = forceTopicWebSearch
+  let retriedTopicWithoutWebSearch = false
 
   if (sourceKind === "youtube") {
     const [readerResult, metadataResult] = await Promise.allSettled([
@@ -2063,6 +2149,54 @@ export async function POST(request: Request) {
     }
 
     if (sourceKind === "topic") {
+      try {
+        raw = await generateTopicRawWithoutWebSearch(source)
+        responseUseWebSearch = false
+        factProvider = null
+        factGroundingStatus = null
+        cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, false)
+        retriedTopicWithoutWebSearch = true
+      } catch (retryError) {
+        console.error("Qraft topic ungrounded retry failed", retryError)
+
+        if (isTokenExhaustedError(retryError)) {
+          await notifyTokenExhausted({ mode: "generate", sourceKind, request, error: retryError })
+          await recordQuestionGenerationEvent({
+            mode: "generate",
+            sourceKind,
+            sourceText: source,
+            topicGroundingDecision,
+            useWebSearch: forceTopicWebSearch,
+            factProvider,
+            factGroundingStatus,
+            generationSuccess: false,
+            latencyMs: getLatencyMs(),
+            errorCode: TOKEN_EXHAUSTED_CODE,
+            previousQuestionCount: previousQuestions.length,
+            request,
+          })
+          return tokenExhaustedResponse()
+        }
+
+        await recordQuestionGenerationEvent({
+          mode: "generate",
+          sourceKind,
+          sourceText: source,
+          topicGroundingDecision,
+          useWebSearch: forceTopicWebSearch,
+          factProvider,
+          factGroundingStatus,
+          generationSuccess: false,
+          latencyMs: getLatencyMs(),
+          errorCode: "generate_model_error",
+          previousQuestionCount: previousQuestions.length,
+          request,
+        })
+        return Response.json(buildUngroundedTopicFallback(source))
+      }
+    }
+
+    if (sourceKind !== "topic") {
       await recordQuestionGenerationEvent({
         mode: "generate",
         sourceKind,
@@ -2074,114 +2208,86 @@ export async function POST(request: Request) {
         generationSuccess: false,
         latencyMs: getLatencyMs(),
         errorCode: "generate_model_error",
+        questionCount: FALLBACK_QUESTIONS.length,
+        reflectionCount: FALLBACK_REFLECTIONS.length,
         previousQuestionCount: previousQuestions.length,
         request,
       })
-      return Response.json(buildUngroundedTopicFallback(source))
+
+      return Response.json({
+        summary: FALLBACK_SUMMARY,
+        questions: FALLBACK_QUESTIONS,
+        reflections: FALLBACK_REFLECTIONS,
+      })
     }
-
-    await recordQuestionGenerationEvent({
-      mode: "generate",
-      sourceKind,
-      sourceText: source,
-      topicGroundingDecision,
-      useWebSearch: forceTopicWebSearch,
-      factProvider,
-      factGroundingStatus,
-      generationSuccess: false,
-      latencyMs: getLatencyMs(),
-      errorCode: "generate_model_error",
-      questionCount: FALLBACK_QUESTIONS.length,
-      reflectionCount: FALLBACK_REFLECTIONS.length,
-      previousQuestionCount: previousQuestions.length,
-      request,
-    })
-
-    return Response.json({
-      summary: FALLBACK_SUMMARY,
-      questions: FALLBACK_QUESTIONS,
-      reflections: FALLBACK_REFLECTIONS,
-    })
   }
 
-  let summary = FALLBACK_SUMMARY
-  let questions: string[] = FALLBACK_QUESTIONS
-  let reflections: string[] = FALLBACK_REFLECTIONS
-  let hasCompleteModelPayload = false
+  let { hasCompleteModelPayload, questions, reflections, summary } = parseQuestionPayload(raw)
 
-  try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/) ?? raw.match(/\[[\s\S]*\]/)
-    const parsed: unknown = JSON.parse(jsonMatch ? jsonMatch[0] : raw)
-
-    if (
-      Array.isArray(parsed) &&
-      parsed.length > 0 &&
-      parsed.every((q) => typeof q === "string")
-    ) {
-      questions = parsed as string[]
-    } else if (
-      parsed &&
-      typeof parsed === "object" &&
-      "summary" in parsed &&
-      "questions" in parsed
-    ) {
-      const payload = parsed as { summary?: unknown; questions?: unknown; reflections?: unknown }
-
-      if (typeof payload.summary === "string" && payload.summary.trim()) {
-        summary = normalizeSummary(removeUnavailableDisclosure(payload.summary))
-      }
-
-      if (
-        Array.isArray(payload.questions) &&
-        payload.questions.length > 0 &&
-        payload.questions.every((q) => typeof q === "string")
-      ) {
-        questions = payload.questions
-      }
-
-      if (
-        Array.isArray(payload.reflections) &&
-        payload.reflections.length > 0 &&
-        payload.reflections.every((reflection) => typeof reflection === "string")
-      ) {
-        reflections = payload.reflections
-      }
-
-      hasCompleteModelPayload =
-        typeof payload.summary === "string" &&
-        payload.summary.trim().length > 0 &&
-        Array.isArray(payload.questions) &&
-        payload.questions.length > 0 &&
-        payload.questions.every((q) => typeof q === "string") &&
-        Array.isArray(payload.reflections) &&
-        payload.reflections.length > 0 &&
-        payload.reflections.every((reflection) => typeof reflection === "string")
-    }
-  } catch {}
-
-  if (forceTopicWebSearch && !hasCompleteModelPayload) {
-    console.error("Qraft grounded topic response was incomplete", {
+  if (sourceKind === "topic" && !hasCompleteModelPayload) {
+    console.error("Qraft topic response was incomplete", {
       reason: topicGroundingDecision?.reason,
       source,
       raw: raw.slice(0, 500),
     })
 
-    await recordQuestionGenerationEvent({
-      mode: "generate",
-      sourceKind,
-      sourceText: source,
-      topicGroundingDecision,
-      useWebSearch: forceTopicWebSearch,
-      factProvider,
-      factGroundingStatus,
-      generationSuccess: false,
-      latencyMs: getLatencyMs(),
-      errorCode: "grounded_response_incomplete",
-      previousQuestionCount: previousQuestions.length,
-      request,
-    })
+    if (!retriedTopicWithoutWebSearch) {
+      try {
+        const retryPayload = parseQuestionPayload(await generateTopicRawWithoutWebSearch(source))
+        retriedTopicWithoutWebSearch = true
 
-    return Response.json(buildUngroundedTopicFallback(source))
+        if (retryPayload.hasCompleteModelPayload) {
+          hasCompleteModelPayload = true
+          questions = retryPayload.questions
+          reflections = retryPayload.reflections
+          summary = retryPayload.summary
+          responseUseWebSearch = false
+          factProvider = null
+          factGroundingStatus = null
+          cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, false)
+        }
+      } catch (retryError) {
+        console.error("Qraft topic ungrounded retry after incomplete response failed", retryError)
+
+        if (isTokenExhaustedError(retryError)) {
+          await notifyTokenExhausted({ mode: "generate", sourceKind, request, error: retryError })
+          await recordQuestionGenerationEvent({
+            mode: "generate",
+            sourceKind,
+            sourceText: source,
+            topicGroundingDecision,
+            useWebSearch: forceTopicWebSearch,
+            factProvider,
+            factGroundingStatus,
+            generationSuccess: false,
+            latencyMs: getLatencyMs(),
+            errorCode: TOKEN_EXHAUSTED_CODE,
+            previousQuestionCount: previousQuestions.length,
+            request,
+          })
+          return tokenExhaustedResponse()
+        }
+      }
+    }
+
+    if (!hasCompleteModelPayload) {
+      await recordQuestionGenerationEvent({
+        mode: "generate",
+        sourceKind,
+        sourceText: source,
+        topicGroundingDecision,
+        useWebSearch: responseUseWebSearch,
+        factProvider,
+        factGroundingStatus,
+        generationSuccess: false,
+        latencyMs: getLatencyMs(),
+        errorCode: forceTopicWebSearch ? "grounded_response_incomplete" : "topic_response_incomplete",
+        previousQuestionCount: previousQuestions.length,
+        request,
+      })
+
+      return Response.json(buildUngroundedTopicFallback(source))
+    }
   }
 
   questions = normalizeList(questions, FALLBACK_QUESTIONS)
@@ -2200,7 +2306,7 @@ export async function POST(request: Request) {
       sourceKind,
       sourceText: source,
       summary,
-      useWebSearch: forceTopicWebSearch,
+      useWebSearch: responseUseWebSearch,
     })
   }
 
@@ -2209,7 +2315,7 @@ export async function POST(request: Request) {
     sourceKind,
     sourceText: source,
     topicGroundingDecision,
-    useWebSearch: forceTopicWebSearch,
+    useWebSearch: responseUseWebSearch,
     factProvider,
     factGroundingStatus,
     generationSuccess: true,

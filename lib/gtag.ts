@@ -17,19 +17,46 @@ function warnAnalyticsSkipped(label: string, error: unknown) {
   }
 }
 
+function getGtagArgs(entry: unknown) {
+  if (Array.isArray(entry)) return entry
+
+  if (
+    entry &&
+    typeof entry === "object" &&
+    typeof (entry as { length?: unknown }).length === "number"
+  ) {
+    return Array.from(entry as ArrayLike<unknown>)
+  }
+
+  return []
+}
+
+function hasQueuedConfig(measurementId: string) {
+  return window.dataLayer?.some((entry) => {
+    const [command, id] = getGtagArgs(entry)
+
+    return command === "config" && id === measurementId
+  })
+}
+
 function ensureGtagQueue() {
   if (!Array.isArray(window.dataLayer)) {
     window.dataLayer = []
   }
 
-  if (typeof window.gtag === "function") return
+  if (typeof window.gtag !== "function") {
+    window.gtag = (...args: unknown[]) => {
+      if (!Array.isArray(window.dataLayer)) {
+        window.dataLayer = []
+      }
 
-  window.gtag = (...args: unknown[]) => {
-    if (!Array.isArray(window.dataLayer)) {
-      window.dataLayer = []
+      window.dataLayer.push(args)
     }
+  }
 
-    window.dataLayer.push(args)
+  if (googleAnalyticsId && !hasQueuedConfig(googleAnalyticsId)) {
+    window.gtag("js", new Date())
+    window.gtag("config", googleAnalyticsId, { send_page_view: false })
   }
 }
 

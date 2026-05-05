@@ -10,6 +10,12 @@ type BgmContextType = {
   toggleBgm: () => void
 }
 
+declare global {
+  interface Window {
+    __qraftBgmAudio?: HTMLAudioElement | null
+  }
+}
+
 const BgmContext = createContext<BgmContextType>({
   bgmOn: true,
   toggleBgm: () => {},
@@ -26,6 +32,11 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
     const audio = audioRef.current
     if (!audio || !bgmOnRef.current) return false
 
+    if (window.__qraftBgmAudio && window.__qraftBgmAudio !== audio) {
+      window.__qraftBgmAudio.pause()
+    }
+
+    window.__qraftBgmAudio = audio
     audio.loop = true
     audio.muted = false
     audio.preload = "auto"
@@ -45,6 +56,16 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
 
   const setAudioElement = useCallback(
     (audio: HTMLAudioElement | null) => {
+      const previousAudio = audioRef.current
+      if (previousAudio && previousAudio !== audio) {
+        previousAudio.pause()
+        previousAudio.currentTime = 0
+
+        if (window.__qraftBgmAudio === previousAudio) {
+          window.__qraftBgmAudio = null
+        }
+      }
+
       audioRef.current = audio
 
       if (audio) {
@@ -80,6 +101,10 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
       audio.removeEventListener("loadeddata", playWhenReady)
       audio.removeEventListener("canplaythrough", playWhenReady)
       audio.pause()
+
+      if (window.__qraftBgmAudio === audio) {
+        window.__qraftBgmAudio = null
+      }
     }
   }, [playAudio])
 
@@ -140,7 +165,7 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <BgmContext.Provider value={{ bgmOn, toggleBgm }}>
-      <audio ref={setAudioElement} src={BGM_SRC} loop autoPlay preload="auto" playsInline />
+      <audio ref={setAudioElement} src={BGM_SRC} loop preload="auto" playsInline />
       {children}
     </BgmContext.Provider>
   )

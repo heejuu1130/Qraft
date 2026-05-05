@@ -2034,8 +2034,10 @@ export default function Hero() {
         className={
           isLanding
             ? "relative z-10 flex min-h-screen flex-col items-center text-center"
-            : `pointer-events-none absolute inset-0 z-10 flex flex-col items-center px-6 text-center ${
-                isReady ? "justify-start overflow-y-auto py-20 sm:py-24" : "justify-center"
+            : `absolute inset-0 z-10 flex flex-col items-center px-6 text-center ${
+                isReady
+                  ? "pointer-events-auto justify-start overflow-y-auto overscroll-contain py-20 sm:py-24 [-webkit-overflow-scrolling:touch]"
+                  : "pointer-events-none justify-center"
               }`
         }
         style={{ fontFamily: '"Outfit", "Helvetica Neue", Helvetica, Arial, sans-serif' }}

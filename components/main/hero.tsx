@@ -2502,7 +2502,7 @@ export default function Hero() {
                 onClick={() => setShowNewQuestionOverlay(true)}
                 className="w-full border border-[#d9ad73]/22 bg-transparent py-3 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2ad7c]/55 transition-colors duration-300 hover:border-[#d9ad73]/45 hover:bg-[#f5dfbd]/[0.07] hover:text-[#f5dfbd]/80 focus:outline-none"
               >
-                새로 질문하기
+                다른 질문하기
               </button>
             </div>
           </div>

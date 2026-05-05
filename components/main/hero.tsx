@@ -2095,7 +2095,7 @@ export default function Hero() {
                       <button
                         type="submit"
                         aria-label="입력"
-                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#d9ad73]/40 bg-[#f5dfbd]/20 font-mono text-sm font-medium uppercase tracking-[0.18em] text-[#f5dfbd]/85 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-700 hover:border-[#efd3a2]/90 hover:bg-[#8d4f31]/35 hover:text-[#fff4dc] active:border-[#efd3a2] active:bg-[#8d4f31]/50 active:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/90 sm:w-24 sm:rounded-none sm:px-5"
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#d9ad73]/56 bg-[#f5dfbd]/[0.27] font-mono text-[13px] font-medium uppercase tracking-[0.18em] text-[#fff4dc]/92 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-700 hover:border-[#efd3a2]/90 hover:bg-[#8d4f31]/35 hover:text-[#fff4dc] active:border-[#efd3a2] active:bg-[#8d4f31]/50 active:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/90 sm:w-24 sm:rounded-none sm:px-5"
                       >
                         <span className="hidden sm:inline">입력</span>
                         <svg className="h-4 w-4 sm:hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">

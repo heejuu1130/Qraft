@@ -2394,7 +2394,7 @@ export default function Hero() {
 
         {isReady && (
           <div
-            className="pointer-events-auto w-full max-w-xl border border-[#d9ad73]/25 bg-[#120b07]/55 p-6 text-left shadow-[0_24px_80px_rgba(13,8,5,0.52)] backdrop-blur-xl sm:mt-8 sm:p-8"
+            className={`pointer-events-auto w-full max-w-xl border border-[#d9ad73]/25 bg-[#120b07]/55 p-6 text-left shadow-[0_24px_80px_rgba(13,8,5,0.52)] backdrop-blur-xl sm:mt-8 sm:p-8 transition-opacity duration-[700ms] ${showNewQuestionOverlay ? "opacity-0 pointer-events-none" : "opacity-100"}`}
             style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif', animation: "qraft-reveal 800ms ease-out forwards" }}
           >
             {summary && (
@@ -2495,6 +2495,70 @@ export default function Hero() {
                 </li>
               ))}
             </ol>
+
+            <div className="mt-8 border-t border-[#d9ad73]/12 pt-5">
+              <button
+                type="button"
+                onClick={() => setShowNewQuestionOverlay(true)}
+                className="w-full border border-[#d9ad73]/22 bg-transparent py-3 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2ad7c]/55 transition-colors duration-300 hover:border-[#d9ad73]/45 hover:bg-[#f5dfbd]/[0.07] hover:text-[#f5dfbd]/80 focus:outline-none"
+              >
+                새로 질문하기
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showNewQuestionOverlay && (
+          <div
+            className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center px-6"
+            style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
+          >
+            <button
+              type="button"
+              aria-label="닫기"
+              onClick={() => setShowNewQuestionOverlay(false)}
+              className="absolute inset-0 cursor-default bg-[#080403]/55 backdrop-blur-sm"
+            />
+            <div
+              className="pointer-events-auto relative w-full max-w-xl"
+              style={{ animation: "qraft-reveal 500ms ease-out forwards" }}
+            >
+              <form
+                onSubmit={handleNewQuestionSubmit}
+                className="flex w-full flex-col gap-3 drop-shadow-[0_18px_44px_rgba(18,11,7,0.42)] sm:flex-row sm:items-end"
+              >
+                <div className="flex flex-1 flex-col gap-2 text-left">
+                  <label htmlFor="qraft-new-source-input" className="relative font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em]">
+                    <span className="text-[#f5dfbd]/70 mix-blend-difference">Link / Topic</span>
+                    <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2]/80 mix-blend-overlay">
+                      Link / Topic
+                    </span>
+                  </label>
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <input
+                      id="qraft-new-source-input"
+                      ref={newQuestionOverlayInputRef}
+                      type="text"
+                      name="source"
+                      placeholder="링크 또는 주제를 입력해주세요"
+                      onFocus={trackQuestionInputFocus}
+                      className="h-12 min-w-0 flex-1 rounded-none border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.16] px-4 text-lg font-normal text-[#f5dfbd]/90 shadow-[0_10px_30px_rgba(13,8,5,0.32)] outline-none backdrop-blur-md transition-colors duration-700 placeholder:text-[#efd3a2]/70 focus:border-[#d9ad73]/55 focus:bg-[#f5dfbd]/[0.19] [&::placeholder]:text-sm"
+                    />
+                    <button
+                      type="submit"
+                      aria-label="입력"
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#d9ad73]/56 bg-[#f5dfbd]/[0.27] font-mono text-[13px] font-medium uppercase tracking-[0.18em] text-[#fff4dc]/92 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-700 hover:border-[#efd3a2]/90 hover:bg-[#8d4f31]/35 hover:text-[#fff4dc] active:border-[#efd3a2] active:bg-[#8d4f31]/50 active:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/90 sm:w-24 sm:rounded-none sm:px-5"
+                    >
+                      <span className="hidden sm:inline">입력</span>
+                      <svg className="h-4 w-4 sm:hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M3.5 8H12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        <path d="M8.75 4.75L12 8L8.75 11.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 

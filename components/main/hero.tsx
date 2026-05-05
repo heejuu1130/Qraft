@@ -454,7 +454,9 @@ export default function Hero() {
   const [feedbackText, setFeedbackText] = useState("")
   const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus>("idle")
   const [feedbackErrorMessage, setFeedbackErrorMessage] = useState("")
+  const [showNewQuestionOverlay, setShowNewQuestionOverlay] = useState(false)
   const landingInputRef = useRef<HTMLInputElement>(null)
+  const newQuestionOverlayInputRef = useRef<HTMLInputElement>(null)
   const philosophySectionRef = useRef<HTMLElement>(null)
   const philosophyCardRef = useRef<HTMLDivElement>(null)
   const section3Ref = useRef<HTMLElement>(null)
@@ -500,6 +502,17 @@ export default function Hero() {
       window.clearTimeout(slowNoticeTimerRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (!showNewQuestionOverlay) return
+    window.setTimeout(() => newQuestionOverlayInputRef.current?.focus(), 50)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowNewQuestionOverlay(false)
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [showNewQuestionOverlay])
+
   const supabase = useMemo(() => createClient(), [])
   const { user, signOut } = useAuth()
   const { bgmOn, toggleBgm } = useBgm()
@@ -1249,6 +1262,15 @@ export default function Hero() {
 
     if (!source) return
 
+    await generateQuestions(source)
+  }
+
+  const handleNewQuestionSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    const source = String(formData.get("source") ?? "").trim()
+    if (!source) return
+    setShowNewQuestionOverlay(false)
     await generateQuestions(source)
   }
 
@@ -2082,7 +2104,7 @@ export default function Hero() {
                         Link / Topic
                       </span>
                     </label>
-                    <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="relative sm:flex sm:items-center sm:gap-3">
                       <input
                         id="qraft-source-input"
                         ref={landingInputRef}
@@ -2090,15 +2112,15 @@ export default function Hero() {
                         name="source"
                         placeholder="링크 또는 주제를 입력해주세요"
                         onFocus={trackQuestionInputFocus}
-                        className="h-12 min-w-0 flex-1 rounded-none border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.16] px-4 text-lg font-normal text-[#f5dfbd]/90 shadow-[0_10px_30px_rgba(13,8,5,0.32)] outline-none backdrop-blur-md transition-colors duration-700 placeholder:text-[#efd3a2]/70 focus:border-[#d9ad73]/55 focus:bg-[#f5dfbd]/[0.19] [&::placeholder]:text-sm"
+                        className="h-12 w-full min-w-0 rounded-none border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.16] px-4 pr-14 text-lg font-normal text-[#f5dfbd]/90 shadow-[0_10px_30px_rgba(13,8,5,0.32)] outline-none backdrop-blur-md transition-colors duration-700 placeholder:text-[#efd3a2]/70 focus:border-[#d9ad73]/55 focus:bg-[#f5dfbd]/[0.19] sm:flex-1 sm:pr-4 [&::placeholder]:text-sm"
                       />
                       <button
                         type="submit"
                         aria-label="입력"
-                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#d9ad73]/56 bg-[#f5dfbd]/[0.27] font-mono text-[13px] font-medium uppercase tracking-[0.18em] text-[#fff4dc]/92 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-700 hover:border-[#efd3a2]/90 hover:bg-[#8d4f31]/35 hover:text-[#fff4dc] active:border-[#efd3a2] active:bg-[#8d4f31]/50 active:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/90 sm:w-24 sm:rounded-none sm:px-5"
+                        className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-[#d9ad73]/56 bg-[#f5dfbd]/[0.27] font-mono text-[13px] font-medium uppercase tracking-[0.18em] text-[#fff4dc]/92 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-700 hover:border-[#efd3a2]/90 hover:bg-[#8d4f31]/35 hover:text-[#fff4dc] active:border-[#efd3a2] active:bg-[#8d4f31]/50 active:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/90 sm:static sm:h-12 sm:w-24 sm:translate-y-0 sm:rounded-none sm:px-5"
                       >
                         <span className="hidden sm:inline">입력</span>
-                        <svg className="h-4 w-4 sm:hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <svg className="h-3.5 w-3.5 sm:hidden" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                           <path d="M3.5 8H12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                           <path d="M8.75 4.75L12 8L8.75 11.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
@@ -2186,7 +2208,7 @@ export default function Hero() {
                         <span
                           key={line}
                           className={`qraft-ownership-line ${
-                            index === 0 ? "qraft-ownership-line-own" : "qraft-ownership-line-change"
+                            index === 0 ? "qraft-ownership-line-own" : "qraft-ownership-line-change mt-2"
                           }`}
                         >
                           {line}

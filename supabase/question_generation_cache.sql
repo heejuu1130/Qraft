@@ -50,6 +50,7 @@ create index if not exists question_generation_cache_source_kind_idx
 alter table public.question_generation_cache enable row level security;
 
 grant usage on schema public to anon, authenticated;
+grant usage on schema public to service_role;
 revoke all on table public.question_generation_cache from anon, authenticated;
 
 create or replace function public.get_question_generation_cache(cache_source_key text)
@@ -65,7 +66,7 @@ returns table (
 )
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 begin
   return query
@@ -102,7 +103,7 @@ create or replace function public.upsert_question_generation_cache(
 returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 begin
   if cache_source_kind not in ('url', 'youtube', 'topic') then
@@ -157,6 +158,7 @@ end;
 $$;
 
 revoke all on function public.get_question_generation_cache(text) from public;
+revoke all on function public.get_question_generation_cache(text) from anon, authenticated;
 revoke all on function public.upsert_question_generation_cache(
   text,
   text,
@@ -170,8 +172,21 @@ revoke all on function public.upsert_question_generation_cache(
   text,
   text
 ) from public;
+revoke all on function public.upsert_question_generation_cache(
+  text,
+  text,
+  text,
+  text,
+  jsonb,
+  jsonb,
+  timestamptz,
+  text,
+  boolean,
+  text,
+  text
+) from anon, authenticated;
 
-grant execute on function public.get_question_generation_cache(text) to anon, authenticated;
+grant execute on function public.get_question_generation_cache(text) to service_role;
 grant execute on function public.upsert_question_generation_cache(
   text,
   text,
@@ -184,4 +199,4 @@ grant execute on function public.upsert_question_generation_cache(
   boolean,
   text,
   text
-) to anon, authenticated;
+) to service_role;

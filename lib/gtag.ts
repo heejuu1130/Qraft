@@ -63,8 +63,18 @@ function ensureGtagQueue() {
 function send(name: string, params?: Record<string, unknown>) {
   if (typeof window === "undefined") return false
 
+  const pageParams = {
+    page_location: window.location.href,
+    page_path: window.location.pathname,
+    page_title: document.title,
+  }
+  const eventParams = {
+    ...pageParams,
+    ...(params ?? {}),
+  }
+
   try {
-    mixpanelTrack(name, params)
+    mixpanelTrack(name, eventParams)
   } catch (error) {
     warnAnalyticsSkipped("Mixpanel tracking skipped", error)
   }
@@ -73,7 +83,7 @@ function send(name: string, params?: Record<string, unknown>) {
     ensureGtagQueue()
     window.gtag?.("event", name, {
       ...(googleAnalyticsId ? { send_to: googleAnalyticsId } : {}),
-      ...(params ?? {}),
+      ...eventParams,
     })
     return true
   } catch (error) {
@@ -116,7 +126,7 @@ export const gtag = {
   questionSaveIntent: (params?: Record<string, unknown>) => send("question_save_intent", params),
   questionSave: (params?: Record<string, unknown>) => send("question_save", params),
   questionUnsave: (params?: Record<string, unknown>) => send("question_unsave", params),
-  landingVisit: () => send("landing_visit"),
+  landingVisit: () => send("landing_visit", { landing_path: window.location.pathname, value: 1 }),
   resultSummaryToggle: (params?: Record<string, unknown>) => send("result_summary_toggle", params),
   resultReflectionToggle: (params?: Record<string, unknown>) => send("result_reflection_toggle", params),
   feedbackOpen: (params?: Record<string, unknown>) => send("feedback_open", params),

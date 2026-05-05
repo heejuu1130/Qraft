@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { createHash } from "crypto"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { createRouteClient } from "@/lib/supabase/route"
 import { normalizeQuestionEndingTone } from "@/lib/question-tone"
 
@@ -1720,7 +1721,10 @@ function normalizeQuestionCacheRecord(record: unknown): QuestionCacheHit | null 
 
 async function getQuestionGenerationCache(sourceKey: string): Promise<QuestionCacheHit | null> {
   try {
-    const { supabase } = await createRouteClient()
+    const supabase = createAdminClient()
+
+    if (!supabase) return null
+
     const { data, error } = await supabase.rpc("get_question_generation_cache", {
       cache_source_key: sourceKey,
     })
@@ -1753,7 +1757,10 @@ async function saveQuestionGenerationCache({
   useWebSearch = null,
 }: QuestionCachePayload) {
   try {
-    const { supabase } = await createRouteClient()
+    const supabase = createAdminClient()
+
+    if (!supabase) return
+
     const { error } = await supabase.rpc("upsert_question_generation_cache", {
       cache_source_key: sourceKey,
       cache_source_text: sourceText.slice(0, 2000),

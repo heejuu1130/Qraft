@@ -1932,7 +1932,7 @@ export default function Hero() {
               isLanding && processSectionActive ? "opacity-80" : "opacity-0"
             }`}
             colors={processRecordColors}
-            speed={shaderSpeed * 0.92}
+            speed={isLanding && processSectionActive ? shaderSpeed * 0.92 : 0}
           />
         )}
         <div
@@ -1946,7 +1946,7 @@ export default function Hero() {
               isLanding && silentSectionActive ? "opacity-100" : "opacity-0"
             }`}
             colors={silentRecordColors}
-            speed={shaderSpeed * 0.85}
+            speed={isLanding && silentSectionActive ? shaderSpeed * 0.85 : 0}
           />
         )}
 

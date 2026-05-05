@@ -28,6 +28,12 @@ function isConstrainedDevice() {
   )
 }
 
+function isCompactTouchViewport() {
+  if (typeof window === "undefined") return false
+
+  return window.matchMedia("(max-width: 767px), (hover: none) and (pointer: coarse)").matches
+}
+
 export function usePerformanceMode() {
   const [pageVisible, setPageVisible] = useState(() =>
     typeof document === "undefined" ? true : document.visibilityState === "visible"
@@ -35,10 +41,12 @@ export function usePerformanceMode() {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
     typeof window === "undefined" ? false : window.matchMedia("(prefers-reduced-motion: reduce)").matches
   )
+  const [compactTouchViewport, setCompactTouchViewport] = useState(isCompactTouchViewport)
   const [constrainedDevice] = useState(isConstrainedDevice)
 
   useEffect(() => {
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const compactViewportQuery = window.matchMedia("(max-width: 767px), (hover: none) and (pointer: coarse)")
 
     const updateVisibility = () => {
       setPageVisible(document.visibilityState === "visible")
@@ -46,25 +54,31 @@ export function usePerformanceMode() {
     const updateMotion = () => {
       setPrefersReducedMotion(motionQuery.matches)
     }
+    const updateCompactViewport = () => {
+      setCompactTouchViewport(compactViewportQuery.matches)
+    }
 
     document.addEventListener("visibilitychange", updateVisibility)
     motionQuery.addEventListener("change", updateMotion)
+    compactViewportQuery.addEventListener("change", updateCompactViewport)
 
     return () => {
       document.removeEventListener("visibilitychange", updateVisibility)
       motionQuery.removeEventListener("change", updateMotion)
+      compactViewportQuery.removeEventListener("change", updateCompactViewport)
     }
   }, [])
 
   return useMemo(
     () => ({
+      compactTouchViewport,
       constrainedDevice,
       pageVisible,
       pauseCssMotion: !pageVisible || prefersReducedMotion,
       prefersReducedMotion,
-      reduceShaderLoad: constrainedDevice || prefersReducedMotion,
+      reduceShaderLoad: compactTouchViewport || constrainedDevice || prefersReducedMotion,
       renderShader: pageVisible && !prefersReducedMotion,
     }),
-    [constrainedDevice, pageVisible, prefersReducedMotion]
+    [compactTouchViewport, constrainedDevice, pageVisible, prefersReducedMotion]
   )
 }

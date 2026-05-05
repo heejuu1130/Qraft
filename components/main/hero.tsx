@@ -405,6 +405,17 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 const getViewportProgress = (start: number, end: number, value: number) => clamp((start - value) / (start - end), 0, 1)
 const getSegmentProgress = (progress: number, start: number, end: number) => clamp((progress - start) / (end - start), 0, 1)
 const getRevealOffset = (progress: number, distance = 28) => `${((1 - progress) * distance).toFixed(1)}px`
+const getActiveViewportHeight = () => window.visualViewport?.height ?? window.innerHeight
+const isSectionActiveInViewport = (
+  rect: Pick<DOMRectReadOnly, "top" | "bottom">,
+  viewportHeight: number,
+  enterAt = 0.76,
+  exitAt = 0.18
+) => {
+  const viewportTop = window.visualViewport?.offsetTop ?? 0
+
+  return rect.top < viewportTop + viewportHeight * enterAt && rect.bottom > viewportTop + viewportHeight * exitAt
+}
 const formatSummaryForDisplay = (value: string) =>
   value
     .replace(/\r\n/g, "\n")
@@ -674,23 +685,14 @@ export default function Hero() {
     if (!section3) return
 
     let frameId: number | undefined
-    let viewportHeight = window.innerHeight
-    let sectionTop = 0
-    let sectionHeight = 0
-
-    const measureSection = () => {
-      const rect = section3.getBoundingClientRect()
-
-      viewportHeight = window.innerHeight
-      sectionTop = rect.top + window.scrollY
-      sectionHeight = rect.height
-    }
+    const visualViewport = window.visualViewport
 
     const updateProcessReveal = () => {
       frameId = undefined
 
-      const sectionViewportTop = sectionTop - window.scrollY
-      const sectionViewportBottom = sectionViewportTop + sectionHeight
+      const viewportHeight = getActiveViewportHeight()
+      const sectionRect = section3.getBoundingClientRect()
+      const sectionViewportTop = sectionRect.top
       const sectionProgress = getViewportProgress(viewportHeight * 0.9, viewportHeight * 0.36, sectionViewportTop)
       const headerProgress = getSegmentProgress(sectionProgress, 0.08, 0.36)
       const cardStarts = [0.32, 0.5, 0.68]
@@ -705,7 +707,7 @@ export default function Hero() {
         section3.style.setProperty(`--process-card-${index + 1}-y`, getRevealOffset(cardProgress, 54))
       })
 
-      const nextActive = sectionViewportTop < viewportHeight * 0.72 && sectionViewportBottom > viewportHeight * 0.24
+      const nextActive = isSectionActiveInViewport(sectionRect, viewportHeight)
 
       if (processSectionActiveRef.current !== nextActive) {
         processSectionActiveRef.current = nextActive
@@ -719,25 +721,26 @@ export default function Hero() {
     }
 
     const handleResize = () => {
-      measureSection()
       queueProcessReveal()
     }
     const resizeObserver =
       typeof ResizeObserver === "undefined"
         ? undefined
         : new ResizeObserver(() => {
-            measureSection()
             queueProcessReveal()
           })
 
-    measureSection()
     queueProcessReveal()
     resizeObserver?.observe(section3)
+    visualViewport?.addEventListener("resize", handleResize)
+    visualViewport?.addEventListener("scroll", queueProcessReveal)
     window.addEventListener("scroll", queueProcessReveal, { passive: true })
     window.addEventListener("resize", handleResize)
 
     return () => {
       resizeObserver?.disconnect()
+      visualViewport?.removeEventListener("resize", handleResize)
+      visualViewport?.removeEventListener("scroll", queueProcessReveal)
       window.removeEventListener("scroll", queueProcessReveal)
       window.removeEventListener("resize", handleResize)
 
@@ -748,27 +751,58 @@ export default function Hero() {
   }, [isLanding, pageVisible])
 
   useEffect(() => {
-    if (!isLanding) return
+    if (!isLanding || !pageVisible) return
 
     const silentSection = silentSectionRef.current
-    if (!silentSection || !("IntersectionObserver" in window)) return
+    if (!silentSection) return
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        const nextActive = entry.isIntersecting && entry.intersectionRatio > 0.16
+    let frameId: number | undefined
+    const visualViewport = window.visualViewport
 
-        setSilentSectionActive((currentActive) => (currentActive === nextActive ? currentActive : nextActive))
-      },
-      {
-        rootMargin: "-18% 0px -24% 0px",
-        threshold: [0, 0.16, 0.38],
+    const updateSilentSectionActive = () => {
+      frameId = undefined
+
+      const viewportHeight = getActiveViewportHeight()
+      const sectionRect = silentSection.getBoundingClientRect()
+      const nextActive = isSectionActiveInViewport(sectionRect, viewportHeight, 0.78, 0.16)
+
+      setSilentSectionActive((currentActive) => (currentActive === nextActive ? currentActive : nextActive))
+    }
+
+    const queueSilentSectionActive = () => {
+      if (frameId !== undefined) return
+      frameId = window.requestAnimationFrame(updateSilentSectionActive)
+    }
+
+    const handleResize = () => {
+      queueSilentSectionActive()
+    }
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(() => {
+            queueSilentSectionActive()
+          })
+
+    queueSilentSectionActive()
+    resizeObserver?.observe(silentSection)
+    visualViewport?.addEventListener("resize", handleResize)
+    visualViewport?.addEventListener("scroll", queueSilentSectionActive)
+    window.addEventListener("scroll", queueSilentSectionActive, { passive: true })
+    window.addEventListener("resize", handleResize)
+
+    return () => {
+      resizeObserver?.disconnect()
+      visualViewport?.removeEventListener("resize", handleResize)
+      visualViewport?.removeEventListener("scroll", queueSilentSectionActive)
+      window.removeEventListener("scroll", queueSilentSectionActive)
+      window.removeEventListener("resize", handleResize)
+
+      if (frameId !== undefined) {
+        window.cancelAnimationFrame(frameId)
       }
-    )
-
-    observer.observe(silentSection)
-
-    return () => observer.disconnect()
-  }, [isLanding])
+    }
+  }, [isLanding, pageVisible])
 
   useEffect(() => {
     if (!isLanding) return
@@ -1932,7 +1966,18 @@ export default function Hero() {
               isLanding && processSectionActive ? "opacity-80" : "opacity-0"
             }`}
             colors={processRecordColors}
-            speed={isLanding && processSectionActive ? shaderSpeed * 0.92 : 0}
+            speed={shaderSpeed * 0.92}
+          />
+        )}
+        {!renderLayeredShaders && (
+          <div
+            className={`absolute inset-0 transition-opacity duration-[1500ms] ease-in-out ${
+              isLanding && processSectionActive ? "opacity-80" : "opacity-0"
+            }`}
+            style={{
+              background:
+                "radial-gradient(circle at 35% 35%, rgba(162, 79, 37, 0.42), transparent 42%), linear-gradient(135deg, rgba(21, 9, 6, 0.18), rgba(255, 210, 138, 0.18))",
+            }}
           />
         )}
         <div
@@ -1940,13 +1985,24 @@ export default function Hero() {
             isLanding && processSectionActive ? "opacity-100" : "opacity-0"
           }`}
         />
+        {!renderLayeredShaders && (
+          <div
+            className={`absolute inset-0 transition-opacity duration-[1400ms] ease-in-out ${
+              isLanding && silentSectionActive ? "opacity-100" : "opacity-0"
+            }`}
+            style={{
+              background:
+                "radial-gradient(circle at 65% 30%, rgba(82, 111, 87, 0.42), transparent 45%), linear-gradient(135deg, rgba(7, 22, 19, 0.82), rgba(18, 48, 39, 0.74) 58%, rgba(216, 195, 164, 0.18))",
+            }}
+          />
+        )}
         {renderLayeredShaders && (
           <MeshGradient
             className={`absolute inset-0 h-full w-full transition-opacity duration-[1400ms] ease-in-out ${
               isLanding && silentSectionActive ? "opacity-100" : "opacity-0"
             }`}
             colors={silentRecordColors}
-            speed={isLanding && silentSectionActive ? shaderSpeed * 0.85 : 0}
+            speed={shaderSpeed * 0.85}
           />
         )}
 

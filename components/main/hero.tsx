@@ -1994,7 +1994,7 @@ export default function Hero() {
       >
         {generationState === "idle" && (
           <>
-            <section className="relative flex min-h-svh w-full flex-col items-center justify-center px-6 pb-[12svh] pt-24 sm:min-h-screen sm:pb-[12vh]">
+            <section className="relative flex min-h-screen w-full flex-col items-center justify-center px-6 pb-[12vh] pt-24">
               <div className="flex w-full flex-col items-center">
                 <h1
                   className={`relative text-5xl font-medium leading-[1.1] tracking-normal drop-shadow-[0_8px_28px_rgba(13,8,5,0.28)] sm:text-[64px] ${

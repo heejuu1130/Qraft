@@ -451,6 +451,7 @@ export default function Hero() {
   const philosophyCardRef = useRef<HTMLDivElement>(null)
   const section3Ref = useRef<HTMLElement>(null)
   const silentSectionRef = useRef<HTMLElement>(null)
+  const silentCharacterRefs = useRef<Array<HTMLSpanElement | null>>([])
   const ctaSectionRef = useRef<HTMLElement>(null)
   const feedbackWidgetRef = useRef<HTMLDivElement>(null)
   const landingStartedAtRef = useRef<number | null>(null)
@@ -458,6 +459,8 @@ export default function Hero() {
   const questionInputFocusSentRef = useRef(false)
   const landingSectionViewSentRef = useRef<Set<string>>(new Set())
   const pendingSaveRestoredRef = useRef(false)
+  const processSectionActiveRef = useRef(false)
+  const hideLandingScrollCueRef = useRef(false)
   const step1TimerRef = useRef<number | undefined>(undefined)
   const slowNoticeTimerRef = useRef<number | undefined>(undefined)
 
@@ -671,14 +674,24 @@ export default function Hero() {
     if (!section3) return
 
     let frameId: number | undefined
-    let active = false
+    let viewportHeight = window.innerHeight
+    let sectionTop = 0
+    let sectionHeight = 0
+
+    const measureSection = () => {
+      const rect = section3.getBoundingClientRect()
+
+      viewportHeight = window.innerHeight
+      sectionTop = rect.top + window.scrollY
+      sectionHeight = rect.height
+    }
 
     const updateProcessReveal = () => {
       frameId = undefined
 
-      const rect = section3.getBoundingClientRect()
-      const viewportHeight = window.innerHeight
-      const sectionProgress = getViewportProgress(viewportHeight * 0.9, viewportHeight * 0.36, rect.top)
+      const sectionViewportTop = sectionTop - window.scrollY
+      const sectionViewportBottom = sectionViewportTop + sectionHeight
+      const sectionProgress = getViewportProgress(viewportHeight * 0.9, viewportHeight * 0.36, sectionViewportTop)
       const headerProgress = getSegmentProgress(sectionProgress, 0.08, 0.36)
       const cardStarts = [0.32, 0.5, 0.68]
 
@@ -692,10 +705,10 @@ export default function Hero() {
         section3.style.setProperty(`--process-card-${index + 1}-y`, getRevealOffset(cardProgress, 54))
       })
 
-      const nextActive = rect.top < viewportHeight * 0.72 && rect.bottom > viewportHeight * 0.24
+      const nextActive = sectionViewportTop < viewportHeight * 0.72 && sectionViewportBottom > viewportHeight * 0.24
 
-      if (active !== nextActive) {
-        active = nextActive
+      if (processSectionActiveRef.current !== nextActive) {
+        processSectionActiveRef.current = nextActive
         setProcessSectionActive(nextActive)
       }
     }
@@ -705,13 +718,28 @@ export default function Hero() {
       frameId = window.requestAnimationFrame(updateProcessReveal)
     }
 
+    const handleResize = () => {
+      measureSection()
+      queueProcessReveal()
+    }
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(() => {
+            measureSection()
+            queueProcessReveal()
+          })
+
+    measureSection()
     queueProcessReveal()
+    resizeObserver?.observe(section3)
     window.addEventListener("scroll", queueProcessReveal, { passive: true })
-    window.addEventListener("resize", queueProcessReveal)
+    window.addEventListener("resize", handleResize)
 
     return () => {
+      resizeObserver?.disconnect()
       window.removeEventListener("scroll", queueProcessReveal)
-      window.removeEventListener("resize", queueProcessReveal)
+      window.removeEventListener("resize", handleResize)
 
       if (frameId !== undefined) {
         window.cancelAnimationFrame(frameId)
@@ -727,7 +755,9 @@ export default function Hero() {
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        setSilentSectionActive(entry.isIntersecting && entry.intersectionRatio > 0.16)
+        const nextActive = entry.isIntersecting && entry.intersectionRatio > 0.16
+
+        setSilentSectionActive((currentActive) => (currentActive === nextActive ? currentActive : nextActive))
       },
       {
         rootMargin: "-18% 0px -24% 0px",
@@ -748,7 +778,9 @@ export default function Hero() {
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        setSilentQuoteActive(entry.isIntersecting && entry.intersectionRatio > 0.62)
+        const nextActive = entry.isIntersecting && entry.intersectionRatio > 0.62
+
+        setSilentQuoteActive((currentActive) => (currentActive === nextActive ? currentActive : nextActive))
       },
       {
         rootMargin: "-10% 0px -10% 0px",
@@ -761,6 +793,73 @@ export default function Hero() {
     return () => observer.disconnect()
   }, [isLanding])
 
+  useEffect(() => {
+    const clearSilentCharacterGlow = () => {
+      silentCharacterRefs.current.forEach((element) => {
+        element?.classList.remove("qraft-silent-character-glowing")
+      })
+    }
+
+    if (!isLanding || !pageVisible || pauseCssMotion || !silentQuoteActive) {
+      clearSilentCharacterGlow()
+      return
+    }
+
+    let timeoutId: number | undefined
+    let activeElements = new Set<HTMLSpanElement>()
+    const startedAt = window.performance.now()
+    const characters = silentRecordCharacterTimings.characters
+    const cycleMs = silentRecordCharacterTimings.cycleMs
+    const glowStartOffset = cycleMs * 0.012
+    const glowDuration = cycleMs * 0.036
+    const updateInterval = Math.max(48, Math.min(96, silentRecordCharacterStepMs))
+
+    const isWithinGlowWindow = (elapsed: number, start: number, end: number) =>
+      start <= end ? elapsed >= start && elapsed <= end : elapsed >= start || elapsed <= end
+
+    const updateActiveCharacters = () => {
+      const elapsed = (window.performance.now() - startedAt) % cycleMs
+      const nextActiveElements = new Set<HTMLSpanElement>()
+
+      characters.forEach(({ delay }, index) => {
+        if (delay === null) return
+
+        const glowStart = (delay + glowStartOffset) % cycleMs
+        const glowEnd = (glowStart + glowDuration) % cycleMs
+
+        if (!isWithinGlowWindow(elapsed, glowStart, glowEnd)) return
+
+        const element = silentCharacterRefs.current[index]
+        if (element) nextActiveElements.add(element)
+      })
+
+      activeElements.forEach((element) => {
+        if (!nextActiveElements.has(element)) {
+          element.classList.remove("qraft-silent-character-glowing")
+        }
+      })
+
+      nextActiveElements.forEach((element) => {
+        if (!activeElements.has(element)) {
+          element.classList.add("qraft-silent-character-glowing")
+        }
+      })
+
+      activeElements = nextActiveElements
+      timeoutId = window.setTimeout(updateActiveCharacters, updateInterval)
+    }
+
+    updateActiveCharacters()
+
+    return () => {
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId)
+      }
+
+      activeElements.forEach((element) => element.classList.remove("qraft-silent-character-glowing"))
+    }
+  }, [isLanding, pageVisible, pauseCssMotion, silentQuoteActive])
+
 
   useEffect(() => {
     if (!isLanding || !pageVisible) return
@@ -770,20 +869,36 @@ export default function Hero() {
     if (!philosophySection || !philosophyCard) return
 
     let frameId: number | undefined
+    let viewportHeight = window.innerHeight
+    let cardTop = 0
+    let cardHeight = 0
+
+    const measureCard = () => {
+      const cardRect = philosophyCard.getBoundingClientRect()
+
+      viewportHeight = window.innerHeight
+      cardTop = cardRect.top + window.scrollY
+      cardHeight = cardRect.height
+    }
 
     const updateOwnershipShift = () => {
       frameId = undefined
 
-      const cardRect = philosophyCard.getBoundingClientRect()
-      const viewportHeight = window.innerHeight
-      const cardCenter = cardRect.top + cardRect.height / 2
+      const cardViewportTop = cardTop - window.scrollY
+      const cardCenter = cardViewportTop + cardHeight / 2
       const cardProgress = getViewportProgress(viewportHeight * 0.84, viewportHeight * 0.5, cardCenter)
       const changeProgress = getSegmentProgress(cardProgress, 0, 0.52)
       const bodyProgress = getSegmentProgress(cardProgress, 0.08, 0.58)
       const quoteProgress = getSegmentProgress(cardProgress, 0.48, 0.78)
       const closingProgress = getSegmentProgress(cardProgress, 0.7, 1)
 
-      setHideLandingScrollCue(changeProgress >= 0.98)
+      const nextHideLandingScrollCue = changeProgress >= 0.98
+
+      if (hideLandingScrollCueRef.current !== nextHideLandingScrollCue) {
+        hideLandingScrollCueRef.current = nextHideLandingScrollCue
+        setHideLandingScrollCue(nextHideLandingScrollCue)
+      }
+
       philosophySection.style.setProperty("--ownership-shift", changeProgress.toFixed(3))
       philosophySection.style.setProperty("--ownership-body-progress", bodyProgress.toFixed(3))
       philosophySection.style.setProperty("--ownership-body-y", getRevealOffset(bodyProgress))
@@ -798,13 +913,28 @@ export default function Hero() {
       frameId = window.requestAnimationFrame(updateOwnershipShift)
     }
 
+    const handleResize = () => {
+      measureCard()
+      queueOwnershipShift()
+    }
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(() => {
+            measureCard()
+            queueOwnershipShift()
+          })
+
+    measureCard()
     queueOwnershipShift()
+    resizeObserver?.observe(philosophyCard)
     window.addEventListener("scroll", queueOwnershipShift, { passive: true })
-    window.addEventListener("resize", queueOwnershipShift)
+    window.addEventListener("resize", handleResize)
 
     return () => {
+      resizeObserver?.disconnect()
       window.removeEventListener("scroll", queueOwnershipShift)
-      window.removeEventListener("resize", queueOwnershipShift)
+      window.removeEventListener("resize", handleResize)
 
       if (frameId !== undefined) {
         window.cancelAnimationFrame(frameId)
@@ -1802,7 +1932,7 @@ export default function Hero() {
               isLanding && processSectionActive ? "opacity-80" : "opacity-0"
             }`}
             colors={processRecordColors}
-            speed={shaderSpeed * 0.92}
+            speed={isLanding && processSectionActive ? shaderSpeed * 0.92 : 0}
           />
         )}
         <div
@@ -1816,7 +1946,7 @@ export default function Hero() {
               isLanding && silentSectionActive ? "opacity-100" : "opacity-0"
             }`}
             colors={silentRecordColors}
-            speed={shaderSpeed * 0.85}
+            speed={isLanding && silentSectionActive ? shaderSpeed * 0.85 : 0}
           />
         )}
 
@@ -2128,7 +2258,9 @@ export default function Hero() {
                       <span
                         className="qraft-silent-character"
                         key={`${character}-${index}`}
-                        style={{ "--character-delay": `${delay}ms` } as CSSProperties}
+                        ref={(element) => {
+                          silentCharacterRefs.current[index] = element
+                        }}
                       >
                         {character}
                       </span>

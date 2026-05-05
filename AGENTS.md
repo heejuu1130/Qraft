@@ -60,6 +60,8 @@ Value Moment: `question_generate_success`, fired after questions are successfull
 | `token_exhausted` | API token exhaustion is detected | `flow`, `signed_in` |
 | `result_summary_toggle` | User expands/collapses summary | `expanded` |
 | `result_reflection_toggle` | User expands/collapses another person's reflection | `expanded`, question metadata |
+| `result_new_question_open` | User opens the other-question overlay from result | previous source metadata, `question_count`, `reflection_count` |
+| `result_new_question_submit` | User submits a new source from the result overlay | source metadata, previous source metadata |
 | `question_save_intent` | User tries to save a generated question | `signed_in`, `question_index` |
 | `question_save` | Question save succeeds | `question_index` |
 | `question_unsave` | Question unsave succeeds | `question_index` |

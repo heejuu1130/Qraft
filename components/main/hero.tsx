@@ -359,6 +359,8 @@ const getLengthBucket = (value: string) => {
   return "1201_plus"
 }
 
+type QuestionGenerateOrigin = "manual" | "result_new_question"
+
 const getScopedStorageKey = (key: string, userId?: string) => `${key}:${userId ?? "guest"}`
 
 const getDisplayName = (user: ReturnType<typeof useAuth>["user"]) => {
@@ -1059,15 +1061,16 @@ export default function Hero() {
     )
   }, [generatedQuestionMemory, isReady, lastSource, questions, reflections, summary])
 
-  const generateQuestions = async (source: string) => {
+  const generateQuestions = async (source: string, requestOrigin: QuestionGenerateOrigin = "manual") => {
     const isExampleTopic = exampleTopics.includes(source)
+    const sourceOrigin = isExampleTopic ? "example_topic" : requestOrigin
 
     resetResultScroll()
 
     gtag.questionGenerateRequest({
       signed_in: Boolean(user),
       source_type: getSourceType(source),
-      source_origin: isExampleTopic ? "example_topic" : "manual",
+      source_origin: sourceOrigin,
       source_length_bucket: getLengthBucket(source),
       elapsed_ms: getLandingElapsedMs(),
     })
@@ -1121,7 +1124,7 @@ export default function Hero() {
       gtag.questionGenerateSuccess({
         signed_in: Boolean(user),
         source_type: getSourceType(source),
-        source_origin: isExampleTopic ? "example_topic" : "manual",
+        source_origin: sourceOrigin,
         source_length_bucket: getLengthBucket(source),
         cache_hit: Boolean(normalizedPayload.cacheHit),
         question_count: normalizedPayload.questions.length,
@@ -1151,7 +1154,7 @@ export default function Hero() {
       gtag.questionGenerateFailure({
         signed_in: Boolean(user),
         source_type: getSourceType(source),
-        source_origin: isExampleTopic ? "example_topic" : "manual",
+        source_origin: sourceOrigin,
         source_length_bucket: getLengthBucket(source),
       })
     }
@@ -1273,13 +1276,39 @@ export default function Hero() {
     await generateQuestions(source)
   }
 
+  const getResultAnalyticsParams = () => ({
+    signed_in: Boolean(user),
+    ...(lastSource
+      ? {
+          previous_source_type: getSourceType(lastSource),
+          previous_source_length_bucket: getLengthBucket(lastSource),
+        }
+      : {}),
+    question_count: questions.length,
+    reflection_count: reflections.length,
+  })
+
+  const handleNewQuestionOpen = () => {
+    gtag.resultNewQuestionOpen({
+      ...getResultAnalyticsParams(),
+      trigger: "result_footer",
+    })
+
+    setShowNewQuestionOverlay(true)
+  }
+
   const handleNewQuestionSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
     const source = String(formData.get("source") ?? "").trim()
     if (!source) return
+    gtag.resultNewQuestionSubmit({
+      ...getResultAnalyticsParams(),
+      source_type: getSourceType(source),
+      source_length_bucket: getLengthBucket(source),
+    })
     setShowNewQuestionOverlay(false)
-    await generateQuestions(source)
+    await generateQuestions(source, "result_new_question")
   }
 
   const handleExampleTopic = (topic: string) => {
@@ -2510,7 +2539,7 @@ export default function Hero() {
             <div className="mt-8 border-t border-[#d9ad73]/12 pt-5">
               <button
                 type="button"
-                onClick={() => setShowNewQuestionOverlay(true)}
+                onClick={handleNewQuestionOpen}
                 className="w-full border border-[#d9ad73]/22 bg-transparent py-3 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2ad7c]/55 transition-colors duration-300 hover:border-[#d9ad73]/45 hover:bg-[#f5dfbd]/[0.07] hover:text-[#f5dfbd]/80 focus:outline-none"
               >
                 다른 질문하기

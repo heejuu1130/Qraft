@@ -432,8 +432,6 @@ export default function Hero() {
   const [loadingStep, setLoadingStep] = useState(0)
   const [loadingNotice, setLoadingNotice] = useState("")
   const [summary, setSummary] = useState("")
-  const [summaryExpanded, setSummaryExpanded] = useState(false)
-  const [summaryOverflowing, setSummaryOverflowing] = useState(false)
   const [questions, setQuestions] = useState<string[]>([])
   const [generatedQuestionMemory, setGeneratedQuestionMemory] = useState<string[]>([])
   const [reflections, setReflections] = useState<string[]>([])
@@ -456,7 +454,6 @@ export default function Hero() {
   const [feedbackText, setFeedbackText] = useState("")
   const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus>("idle")
   const [feedbackErrorMessage, setFeedbackErrorMessage] = useState("")
-  const summaryRef = useRef<HTMLParagraphElement>(null)
   const landingInputRef = useRef<HTMLInputElement>(null)
   const philosophySectionRef = useRef<HTMLElement>(null)
   const philosophyCardRef = useRef<HTMLDivElement>(null)
@@ -1044,19 +1041,6 @@ export default function Hero() {
     )
   }, [generatedQuestionMemory, isReady, lastSource, questions, reflections, summary])
 
-  useEffect(() => {
-    const summaryElement = summaryRef.current
-    if (!summaryElement || !displayedSummary) {
-      setSummaryOverflowing(false)
-      return
-    }
-
-    const lineHeight = Number.parseFloat(window.getComputedStyle(summaryElement).lineHeight)
-    const collapsedHeight = lineHeight * 3
-
-    setSummaryOverflowing(summaryElement.scrollHeight > collapsedHeight + 1)
-  }, [displayedSummary, summaryExpanded, isReady])
-
   const generateQuestions = async (source: string) => {
     const isExampleTopic = exampleTopics.includes(source)
 
@@ -1070,8 +1054,6 @@ export default function Hero() {
     setLoadingStep(0)
     setLoadingNotice("")
     setSummary("")
-    setSummaryExpanded(false)
-    setSummaryOverflowing(false)
     setQuestions([])
     setGeneratedQuestionMemory([])
     setReflections([])
@@ -1502,7 +1484,6 @@ export default function Hero() {
         setQuestions(pendingSaveQuestions)
         setGeneratedQuestionMemory(mergeQuestionMemory(pendingSaveQuestions))
         setReflections(pendingSave.reflections)
-        setSummaryExpanded(false)
         setOpenReflectionIndexes(new Set())
         setGenerationState("ready")
 
@@ -1583,17 +1564,6 @@ export default function Hero() {
 
       return nextIndexes
     })
-  }
-
-  const toggleSummaryExpanded = () => {
-    const nextExpanded = !summaryExpanded
-
-    gtag.resultSummaryToggle({
-      expanded: nextExpanded,
-      summary_length_bucket: getLengthBucket(summary),
-    })
-
-    setSummaryExpanded(nextExpanded)
   }
 
   return (
@@ -2043,7 +2013,7 @@ export default function Hero() {
           isLanding
             ? "relative z-10 flex min-h-screen flex-col items-center text-center"
             : `pointer-events-none absolute inset-0 z-10 flex flex-col items-center px-6 text-center ${
-                isReady ? "justify-start overflow-hidden py-20 sm:overflow-y-auto sm:py-24" : "justify-center"
+                isReady ? "justify-start overflow-y-auto py-20 sm:py-24" : "justify-center"
               }`
         }
         style={{ fontFamily: '"Outfit", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
@@ -2105,29 +2075,36 @@ export default function Hero() {
                   } pointer-events-auto mt-[54px] flex w-full max-w-2xl flex-col gap-3 drop-shadow-[0_18px_44px_rgba(18,11,7,0.42)] sm:flex-row sm:items-end`}
                   style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                 >
-                  <label className="flex flex-1 flex-col gap-2 text-left">
-                    <span className="relative font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em]">
+                  <div className="flex flex-1 flex-col gap-2 text-left">
+                    <label htmlFor="qraft-source-input" className="relative font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em]">
                       <span className="text-[#f5dfbd]/70 mix-blend-difference">Link / Topic</span>
                       <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2]/80 mix-blend-overlay">
                         Link / Topic
                       </span>
-                    </span>
-                    <input
-                      ref={landingInputRef}
-                      type="text"
-                      name="source"
-                      placeholder="링크 또는 주제를 입력해주세요"
-                      onFocus={trackQuestionInputFocus}
-                      className="h-12 rounded-none border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.16] px-4 text-lg font-normal text-[#f5dfbd]/90 shadow-[0_10px_30px_rgba(13,8,5,0.32)] outline-none backdrop-blur-md transition-colors duration-700 placeholder:text-[#efd3a2]/70 focus:border-[#d9ad73]/55 focus:bg-[#f5dfbd]/[0.19] [&::placeholder]:text-sm"
-                    />
-                  </label>
-
-                  <button
-                    type="submit"
-                    className="h-12 w-full border border-[#d9ad73]/40 bg-[#f5dfbd]/20 px-5 font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-[#f5dfbd]/85 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-700 hover:border-[#efd3a2]/90 hover:bg-[#8d4f31]/35 hover:text-[#fff4dc] active:border-[#efd3a2] active:bg-[#8d4f31]/50 active:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/90 sm:w-24"
-                  >
-                    입력
-                  </button>
+                    </label>
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <input
+                        id="qraft-source-input"
+                        ref={landingInputRef}
+                        type="text"
+                        name="source"
+                        placeholder="링크 또는 주제를 입력해주세요"
+                        onFocus={trackQuestionInputFocus}
+                        className="h-12 min-w-0 flex-1 rounded-none border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.16] px-4 text-lg font-normal text-[#f5dfbd]/90 shadow-[0_10px_30px_rgba(13,8,5,0.32)] outline-none backdrop-blur-md transition-colors duration-700 placeholder:text-[#efd3a2]/70 focus:border-[#d9ad73]/55 focus:bg-[#f5dfbd]/[0.19] [&::placeholder]:text-sm"
+                      />
+                      <button
+                        type="submit"
+                        aria-label="입력"
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#d9ad73]/40 bg-[#f5dfbd]/20 font-mono text-sm font-medium uppercase tracking-[0.18em] text-[#f5dfbd]/85 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-700 hover:border-[#efd3a2]/90 hover:bg-[#8d4f31]/35 hover:text-[#fff4dc] active:border-[#efd3a2] active:bg-[#8d4f31]/50 active:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/90 sm:w-24 sm:rounded-none sm:px-5"
+                      >
+                        <span className="hidden sm:inline">입력</span>
+                        <svg className="h-4 w-4 sm:hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <path d="M3.5 8H12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          <path d="M8.75 4.75L12 8L8.75 11.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
                 </form>
 
                 <div
@@ -2204,7 +2181,7 @@ export default function Hero() {
                       02 / Philosophy
                     </p>
                     <div className="mt-6 h-px w-full bg-[#d9ad73]/16" />
-                    <h2 className="mt-8 text-2xl font-medium leading-[1.22] tracking-normal [word-break:keep-all] sm:text-3xl lg:text-[34px]">
+                    <h2 className="mt-8 text-2xl font-medium leading-[1.36] tracking-normal [word-break:keep-all] sm:text-3xl lg:text-[34px]">
                       {ownershipQuestionLines.map((line, index) => (
                         <span
                           key={line}
@@ -2395,7 +2372,7 @@ export default function Hero() {
 
         {isReady && (
           <div
-            className="qraft-ready-card pointer-events-auto w-full max-w-xl overflow-y-auto overscroll-contain border border-[#d9ad73]/25 bg-[#120b07]/55 p-6 text-left shadow-[0_24px_80px_rgba(13,8,5,0.52)] backdrop-blur-xl sm:mt-8 sm:p-8"
+            className="pointer-events-auto w-full max-w-xl border border-[#d9ad73]/25 bg-[#120b07]/55 p-6 text-left shadow-[0_24px_80px_rgba(13,8,5,0.52)] backdrop-blur-xl sm:mt-8 sm:p-8"
             style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif', animation: "qraft-reveal 800ms ease-out forwards" }}
           >
             {summary && (
@@ -2404,18 +2381,7 @@ export default function Hero() {
                   Summary
                 </p>
                 <p
-                  ref={summaryRef}
                   className="mt-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/62 [overflow-wrap:anywhere] [word-break:keep-all] sm:text-[15px]"
-                  style={
-                    summaryExpanded
-                      ? { maxHeight: "17em", overflowY: "auto" }
-                      : {
-                          display: "-webkit-box",
-                          WebkitBoxOrient: "vertical",
-                          WebkitLineClamp: 3,
-                          overflow: "hidden",
-                        }
-                  }
                 >
                   {displayedSummaryLines.map((line, index) => (
                     <span
@@ -2426,15 +2392,6 @@ export default function Hero() {
                     </span>
                   ))}
                 </p>
-                {summaryOverflowing && (
-                  <button
-                    type="button"
-                    onClick={toggleSummaryExpanded}
-                    className="mt-3 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/55 transition-colors duration-300 hover:text-[#f5dfbd]/80 focus:outline-none"
-                  >
-                    {summaryExpanded ? "접기" : "펼치기"}
-                  </button>
-                )}
               </div>
             )}
 
@@ -2460,7 +2417,7 @@ export default function Hero() {
                 {saveErrorMessage}
               </p>
             )}
-            <ol className="mt-6 flex flex-col gap-8">
+            <ol className="mt-6 flex flex-col gap-9">
               {questions.map((q, i) => (
                 <li key={i} className="flex gap-3">
                   <div className="mt-1 flex shrink-0 flex-col items-center gap-2">

@@ -455,6 +455,7 @@ export default function Hero() {
   const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus>("idle")
   const [feedbackErrorMessage, setFeedbackErrorMessage] = useState("")
   const [showNewQuestionOverlay, setShowNewQuestionOverlay] = useState(false)
+  const mainContentRef = useRef<HTMLDivElement>(null)
   const landingInputRef = useRef<HTMLInputElement>(null)
   const newQuestionOverlayInputRef = useRef<HTMLInputElement>(null)
   const philosophySectionRef = useRef<HTMLElement>(null)
@@ -473,6 +474,10 @@ export default function Hero() {
   const hideLandingScrollCueRef = useRef(false)
   const step1TimerRef = useRef<number | undefined>(undefined)
   const slowNoticeTimerRef = useRef<number | undefined>(undefined)
+
+  const resetResultScroll = () => {
+    mainContentRef.current?.scrollTo({ top: 0, behavior: "auto" })
+  }
 
   useEffect(() => {
     landingStartedAtRef.current = window.performance.now()
@@ -1057,6 +1062,8 @@ export default function Hero() {
   const generateQuestions = async (source: string) => {
     const isExampleTopic = exampleTopics.includes(source)
 
+    resetResultScroll()
+
     gtag.questionGenerateRequest({
       signed_in: Boolean(user),
       source_type: getSourceType(source),
@@ -1110,6 +1117,7 @@ export default function Hero() {
       await saveHistory(source, normalizedPayload)
       setLoadingNotice("")
       setGenerationState("ready")
+      window.requestAnimationFrame(resetResultScroll)
       gtag.questionGenerateSuccess({
         signed_in: Boolean(user),
         source_type: getSourceType(source),
@@ -2031,6 +2039,7 @@ export default function Hero() {
 
       {/* 메인 콘텐츠 */}
       <div
+        ref={mainContentRef}
         className={
           isLanding
             ? "relative z-10 flex min-h-screen flex-col items-center text-center"

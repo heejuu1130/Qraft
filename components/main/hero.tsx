@@ -2338,6 +2338,9 @@ export default function Hero() {
                 <h2 className="mt-4 text-lg font-medium leading-tight text-[#dfe9df]/58 sm:text-2xl">
                   타인의 고찰
                 </h2>
+                <p className="mt-3 max-w-2xl text-sm font-medium leading-[1.75] text-[#cbd8cf]/48 [word-break:keep-all] sm:text-[15px]">
+                  본 고찰은 사용자의 깊은 사유를 돕기 위해, 입력된 주제에 가상의 페르소나를 이입하여 설계한 관점의 예시입니다.
+                </p>
                 <blockquote
                   className={`qraft-scroll-rise qraft-silent-quote mt-9 max-w-3xl text-xl font-medium leading-[1.55] tracking-normal [word-break:keep-all] sm:text-2xl sm:leading-[1.5] ${
                     silentQuoteActive ? "qraft-silent-quote-active" : ""

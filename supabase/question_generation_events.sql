@@ -18,6 +18,17 @@ create table if not exists public.question_generation_events (
   question_count smallint,
   reflection_count smallint,
   previous_question_count smallint not null default 0,
+  token_provider text,
+  token_model text,
+  token_strategy_version text,
+  input_tokens integer check (input_tokens is null or input_tokens >= 0),
+  output_tokens integer check (output_tokens is null or output_tokens >= 0),
+  cache_creation_input_tokens integer check (
+    cache_creation_input_tokens is null or cache_creation_input_tokens >= 0
+  ),
+  cache_read_input_tokens integer check (cache_read_input_tokens is null or cache_read_input_tokens >= 0),
+  total_tokens integer check (total_tokens is null or total_tokens >= 0),
+  token_usage_breakdown jsonb,
   page_path text,
   user_agent text,
   admin_label text check (admin_label is null or admin_label in ('factual', 'abstract', 'external_reference', 'ambiguous', 'spam', 'other')),
@@ -47,6 +58,33 @@ alter table public.question_generation_events
 
 alter table public.question_generation_events
   add column if not exists cache_hit boolean not null default false;
+
+alter table public.question_generation_events
+  add column if not exists token_provider text;
+
+alter table public.question_generation_events
+  add column if not exists token_model text;
+
+alter table public.question_generation_events
+  add column if not exists token_strategy_version text;
+
+alter table public.question_generation_events
+  add column if not exists input_tokens integer;
+
+alter table public.question_generation_events
+  add column if not exists output_tokens integer;
+
+alter table public.question_generation_events
+  add column if not exists cache_creation_input_tokens integer;
+
+alter table public.question_generation_events
+  add column if not exists cache_read_input_tokens integer;
+
+alter table public.question_generation_events
+  add column if not exists total_tokens integer;
+
+alter table public.question_generation_events
+  add column if not exists token_usage_breakdown jsonb;
 
 alter table public.question_generation_events
   add column if not exists admin_label text;

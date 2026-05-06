@@ -15,6 +15,8 @@ const generationMaxTokens = 1250
 const groundedGenerationMaxTokens = 1650
 const geminiRouterTimeoutMs = 1800
 const geminiRouterMaxTokens = 160
+const geminiPreSummarizeTimeoutMs = 8000
+const compressedContentLimit = 2000
 const regenerationMaxTokens = 950
 const previousQuestionLimit = 8
 const topicWebSearchMaxUses = 1
@@ -26,6 +28,18 @@ const cacheFactualTopicTtlMs = 24 * 60 * 60 * 1000
 const cacheTopicTtlMs = 3 * 24 * 60 * 60 * 1000
 const cacheLinkTtlMs = 7 * 24 * 60 * 60 * 1000
 const questionCacheVersion = "v7"
+const tokenStrategyVersion = process.env.QRAFT_TOKEN_STRATEGY_VERSION?.trim() || "usage_v1"
+const tokenEventColumnNames = [
+  "token_provider",
+  "token_model",
+  "token_strategy_version",
+  "input_tokens",
+  "output_tokens",
+  "cache_creation_input_tokens",
+  "cache_read_input_tokens",
+  "total_tokens",
+  "token_usage_breakdown",
+] as const
 const factualTopicKeywords = [
   "ceo",
   "앱",
@@ -417,6 +431,43 @@ type TokenAlertPayload = {
   error: unknown
 }
 
+type TokenUsageProvider = "anthropic" | "google"
+
+type TokenUsageEntry = {
+  cacheCreationInputTokens?: number | null
+  cacheReadInputTokens?: number | null
+  inputTokens?: number | null
+  model: string
+  outputTokens?: number | null
+  provider: TokenUsageProvider
+  totalTokens?: number | null
+}
+
+type TokenUsageSnapshot = {
+  breakdown: Array<{
+    cache_creation_input_tokens: number | null
+    cache_read_input_tokens: number | null
+    input_tokens: number | null
+    model: string
+    output_tokens: number | null
+    provider: TokenUsageProvider
+    total_tokens: number | null
+  }>
+  cacheCreationInputTokens: number | null
+  cacheReadInputTokens: number | null
+  inputTokens: number | null
+  model: string | null
+  outputTokens: number | null
+  provider: TokenUsageProvider | "mixed" | null
+  strategyVersion: string
+  totalTokens: number | null
+}
+
+type TokenUsageAccumulator = {
+  add: (entry: TokenUsageEntry | null) => void
+  snapshot: () => TokenUsageSnapshot | null
+}
+
 type QuestionGenerationEventPayload = {
   cacheHit?: boolean
   errorCode?: string | null
@@ -431,6 +482,7 @@ type QuestionGenerationEventPayload = {
   request: Request
   sourceKind: SourceKind | "summary"
   sourceText?: string | null
+  tokenUsage?: TokenUsageSnapshot | null
   topicGroundingDecision?: TopicGroundingDecision | null
   useWebSearch?: boolean | null
 }
@@ -475,6 +527,151 @@ type QuestionRateLimitEntry = {
 }
 
 const questionRateLimitStore = new Map<string, QuestionRateLimitEntry>()
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null
+}
+
+function toTokenInteger(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null
+}
+
+function sumTokenValues(values: Array<number | null | undefined>) {
+  const knownValues = values.filter((value): value is number => typeof value === "number")
+
+  return knownValues.length > 0 ? knownValues.reduce((sum, value) => sum + value, 0) : null
+}
+
+function normalizeTokenUsageEntry(entry: TokenUsageEntry | null): TokenUsageEntry | null {
+  if (!entry) return null
+
+  const inputTokens = toTokenInteger(entry.inputTokens)
+  const outputTokens = toTokenInteger(entry.outputTokens)
+  const cacheCreationInputTokens = toTokenInteger(entry.cacheCreationInputTokens)
+  const cacheReadInputTokens = toTokenInteger(entry.cacheReadInputTokens)
+  const totalTokens =
+    toTokenInteger(entry.totalTokens) ??
+    sumTokenValues([inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens])
+
+  if (
+    inputTokens === null &&
+    outputTokens === null &&
+    cacheCreationInputTokens === null &&
+    cacheReadInputTokens === null &&
+    totalTokens === null
+  ) {
+    return null
+  }
+
+  return {
+    cacheCreationInputTokens,
+    cacheReadInputTokens,
+    inputTokens,
+    model: entry.model,
+    outputTokens,
+    provider: entry.provider,
+    totalTokens,
+  }
+}
+
+function createTokenUsageAccumulator(): TokenUsageAccumulator {
+  const entries: TokenUsageEntry[] = []
+
+  return {
+    add(entry) {
+      const normalizedEntry = normalizeTokenUsageEntry(entry)
+
+      if (normalizedEntry) {
+        entries.push(normalizedEntry)
+      }
+    },
+    snapshot() {
+      if (entries.length === 0) return null
+
+      const providers = new Set(entries.map((entry) => entry.provider))
+      const models = new Set(entries.map((entry) => entry.model))
+
+      return {
+        breakdown: entries.map((entry) => ({
+          cache_creation_input_tokens: entry.cacheCreationInputTokens ?? null,
+          cache_read_input_tokens: entry.cacheReadInputTokens ?? null,
+          input_tokens: entry.inputTokens ?? null,
+          model: entry.model,
+          output_tokens: entry.outputTokens ?? null,
+          provider: entry.provider,
+          total_tokens: entry.totalTokens ?? null,
+        })),
+        cacheCreationInputTokens: sumTokenValues(entries.map((entry) => entry.cacheCreationInputTokens)),
+        cacheReadInputTokens: sumTokenValues(entries.map((entry) => entry.cacheReadInputTokens)),
+        inputTokens: sumTokenValues(entries.map((entry) => entry.inputTokens)),
+        model: models.size === 1 ? entries[0]?.model ?? null : "multiple",
+        outputTokens: sumTokenValues(entries.map((entry) => entry.outputTokens)),
+        provider: providers.size === 1 ? entries[0]?.provider ?? null : "mixed",
+        strategyVersion: tokenStrategyVersion,
+        totalTokens: sumTokenValues(entries.map((entry) => entry.totalTokens)),
+      }
+    },
+  }
+}
+
+function createZeroTokenUsageSnapshot(): TokenUsageSnapshot {
+  return {
+    breakdown: [],
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    inputTokens: 0,
+    model: null,
+    outputTokens: 0,
+    provider: null,
+    strategyVersion: tokenStrategyVersion,
+    totalTokens: 0,
+  }
+}
+
+function getAnthropicTokenUsage(response: { usage?: unknown }, model: string): TokenUsageEntry | null {
+  const usage = asRecord(response.usage)
+
+  if (!usage) return null
+
+  return {
+    cacheCreationInputTokens: toTokenInteger(usage.cache_creation_input_tokens),
+    cacheReadInputTokens: toTokenInteger(usage.cache_read_input_tokens),
+    inputTokens: toTokenInteger(usage.input_tokens),
+    model,
+    outputTokens: toTokenInteger(usage.output_tokens),
+    provider: "anthropic",
+  }
+}
+
+function getGeminiTokenUsage(payload: unknown, model: string): TokenUsageEntry | null {
+  const usageMetadata = asRecord(asRecord(payload)?.usageMetadata)
+
+  if (!usageMetadata) return null
+
+  return {
+    inputTokens: toTokenInteger(usageMetadata.promptTokenCount),
+    model,
+    outputTokens: toTokenInteger(usageMetadata.candidatesTokenCount),
+    provider: "google",
+    totalTokens: toTokenInteger(usageMetadata.totalTokenCount),
+  }
+}
+
+function isMissingTokenEventColumnError(error: unknown) {
+  const text = JSON.stringify(error).toLowerCase()
+
+  return text.includes("column") && tokenEventColumnNames.some((columnName) => text.includes(columnName))
+}
+
+function withoutTokenEventFields(payload: Record<string, unknown>) {
+  const nextPayload = { ...payload }
+
+  tokenEventColumnNames.forEach((columnName) => {
+    delete nextPayload[columnName]
+  })
+
+  return nextPayload
+}
 
 function isUrl(str: string): boolean {
   try {
@@ -631,6 +828,7 @@ async function fetchYouTubeMetadata(url: string): Promise<YouTubeMetadata | null
 async function fetchViaJina(url: string, timeoutMs = jinaReaderTimeoutMs): Promise<string> {
   const headers: HeadersInit = {
     Accept: "text/plain",
+    "X-Remove-Selector": "nav, footer, header, aside, script, style",
   }
 
   if (process.env.JINA_API_KEY) {
@@ -1151,7 +1349,7 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
   if (semanticDecision.kind === "abstract") {
     return withSemanticScores({ reason: "semantic_abstract_prototype", useWebSearch: false })
   }
-  if (semanticDecision.kind === "factual") {
+  if (semanticDecision.kind === "factual" && !hasAbstractSignal) {
     return withSemanticScores({ reason: "semantic_factual_prototype", useWebSearch: true })
   }
   if (hasAbstractSignal && hasFactualKeyword) return withSemanticScores({ reason: "abstract_concept", useWebSearch: false })
@@ -1288,6 +1486,62 @@ function getGeminiRouterModel() {
   return process.env.GEMINI_ROUTER_MODEL?.trim() || "gemini-2.5-flash-lite"
 }
 
+function getGeminiPreSummarizeModel() {
+  return process.env.GEMINI_PRESUMMARIZE_MODEL?.trim() || "gemini-2.5-flash-lite"
+}
+
+async function compressContentWithGemini(
+  content: string,
+  tokenUsage?: TokenUsageAccumulator
+): Promise<string> {
+  if (content.length <= compressedContentLimit) return content
+
+  const apiKey = getGeminiApiKey()
+  if (!apiKey) return content
+  const model = getGeminiPreSummarizeModel()
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: [
+                    "다음 텍스트에서 핵심 사실, 주요 주장, 인물, 수치, 날짜, 논점을 빠짐없이 보존하고, 광고·메뉴·공유버튼·반복 문구 등 불필요한 요소를 제거하여 2000자 이내로 압축하세요. 원문의 언어를 그대로 유지하고, 원문에 없는 내용은 추가하지 마세요. 압축된 텍스트만 출력하세요.",
+                    content,
+                  ].join("\n\n"),
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            maxOutputTokens: 800,
+            temperature: 0,
+          },
+        }),
+        signal: AbortSignal.timeout(geminiPreSummarizeTimeoutMs),
+      }
+    )
+
+    if (!response.ok) return content
+
+    const payload: unknown = await response.json()
+    tokenUsage?.add(getGeminiTokenUsage(payload, model))
+    const compressed = getGeminiText(payload)
+    return compressed.trim() || content
+  } catch {
+    return content
+  }
+}
+
 function getGeminiText(payload: unknown) {
   if (!payload || typeof payload !== "object") return ""
 
@@ -1301,13 +1555,17 @@ function getGeminiText(payload: unknown) {
     .trim()
 }
 
-async function fetchGeminiRouterDecision(source: string): Promise<GeminiRouterDecision | null> {
+async function fetchGeminiRouterDecision(
+  source: string,
+  tokenUsage?: TokenUsageAccumulator
+): Promise<GeminiRouterDecision | null> {
   const apiKey = getGeminiApiKey()
 
   if (!apiKey) return null
+  const model = getGeminiRouterModel()
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${getGeminiRouterModel()}:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
       method: "POST",
       headers: {
@@ -1338,13 +1596,15 @@ async function fetchGeminiRouterDecision(source: string): Promise<GeminiRouterDe
     throw new Error(`Gemini router request failed: ${response.status}`)
   }
 
-  const raw = getGeminiText(await response.json())
+  const payload: unknown = await response.json()
+  tokenUsage?.add(getGeminiTokenUsage(payload, model))
+  const raw = getGeminiText(payload)
   const parsed = parseJsonFromText(raw)
 
   return normalizeGeminiRouterDecision(parsed)
 }
 
-async function resolveTopicGroundingDecision(source: string) {
+async function resolveTopicGroundingDecision(source: string, tokenUsage?: TokenUsageAccumulator) {
   const localDecision = getTopicGroundingDecision(source)
 
   if (!shouldUseGeminiRouter(source, localDecision)) {
@@ -1352,7 +1612,7 @@ async function resolveTopicGroundingDecision(source: string) {
   }
 
   try {
-    const routerDecision = await fetchGeminiRouterDecision(source)
+    const routerDecision = await fetchGeminiRouterDecision(source, tokenUsage)
 
     if (!routerDecision || routerDecision.confidence < 0.68 || routerDecision.route === "unclear") {
       return localDecision
@@ -1438,7 +1698,7 @@ function buildModelInput({
   ].join("\n\n")
 }
 
-async function generateTopicRawWithoutWebSearch(source: string) {
+async function generateTopicRawWithoutWebSearch(source: string, tokenUsage?: TokenUsageAccumulator) {
   const retryInput = buildModelInput({
     source,
     content: source,
@@ -1446,14 +1706,16 @@ async function generateTopicRawWithoutWebSearch(source: string) {
     resolved: false,
     forceWebSearch: false,
   })
+  const model = getInitialGenerationModel("topic", false)
   const retryResponse = await client.messages.create({
-    model: getInitialGenerationModel("topic", false),
+    model,
     max_tokens: generationMaxTokens,
     temperature: 0.35,
     system: getCachedSystemPrompt(SYSTEM_PROMPT),
     messages: [{ role: "user", content: retryInput }],
   })
 
+  tokenUsage?.add(getAnthropicTokenUsage(retryResponse, model))
   return getResponseText(retryResponse.content)
 }
 
@@ -1797,6 +2059,7 @@ async function recordQuestionGenerationEvent({
   request,
   sourceKind,
   sourceText = null,
+  tokenUsage = null,
   topicGroundingDecision = null,
   useWebSearch = null,
 }: QuestionGenerationEventPayload) {
@@ -1809,7 +2072,7 @@ async function recordQuestionGenerationEvent({
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    const { error } = await supabase.from("question_generation_events").insert({
+    const eventPayload: Record<string, unknown> = {
       user_id: user?.id ?? null,
       mode,
       source_text: normalizedSourceText,
@@ -1828,9 +2091,30 @@ async function recordQuestionGenerationEvent({
       question_count: questionCount,
       reflection_count: reflectionCount,
       previous_question_count: previousQuestionCount,
+      token_provider: tokenUsage?.provider ?? null,
+      token_model: tokenUsage?.model ?? null,
+      token_strategy_version: tokenUsage?.strategyVersion ?? tokenStrategyVersion,
+      input_tokens: tokenUsage?.inputTokens ?? null,
+      output_tokens: tokenUsage?.outputTokens ?? null,
+      cache_creation_input_tokens: tokenUsage?.cacheCreationInputTokens ?? null,
+      cache_read_input_tokens: tokenUsage?.cacheReadInputTokens ?? null,
+      total_tokens: tokenUsage?.totalTokens ?? null,
+      token_usage_breakdown: tokenUsage?.breakdown ?? null,
       page_path: path,
       user_agent: userAgent,
-    })
+    }
+    const { error } = await supabase.from("question_generation_events").insert(eventPayload)
+
+    if (error && isMissingTokenEventColumnError(error)) {
+      const { error: fallbackError } = await supabase
+        .from("question_generation_events")
+        .insert(withoutTokenEventFields(eventPayload))
+
+      if (fallbackError) {
+        console.error("Qraft question generation event insert failed", fallbackError)
+      }
+      return
+    }
 
     if (error) {
       console.error("Qraft question generation event insert failed", error)
@@ -1872,20 +2156,24 @@ export async function POST(request: Request) {
     return questionRateLimitResponse(rateLimit.retryAfterSeconds)
   }
 
+  const tokenUsage = createTokenUsageAccumulator()
+
   // 재생성 모드: 기존 요약으로 질문+고찰만 생성
   if (existingSummary) {
     let raw = ""
     const regenerateInput = buildRegenerateModelInput(existingSummary, previousQuestions)
+    const regenerateModel = fastGenerationModel
 
     try {
       const response = await client.messages.create({
-        model: sonnetGenerationModel,
+        model: regenerateModel,
         max_tokens: regenerationMaxTokens,
         temperature: 0.35,
         system: getCachedSystemPrompt(REGENERATE_SYSTEM_PROMPT),
         messages: [{ role: "user", content: regenerateInput }],
       })
 
+      tokenUsage.add(getAnthropicTokenUsage(response, regenerateModel))
       raw = getResponseText(response.content)
     } catch (error) {
       console.error(error)
@@ -1900,6 +2188,7 @@ export async function POST(request: Request) {
           errorCode: TOKEN_EXHAUSTED_CODE,
           previousQuestionCount: previousQuestions.length,
           request,
+          tokenUsage: tokenUsage.snapshot(),
         })
         return tokenExhaustedResponse()
       }
@@ -1915,6 +2204,7 @@ export async function POST(request: Request) {
         reflectionCount: FALLBACK_REFLECTIONS.length,
         previousQuestionCount: previousQuestions.length,
         request,
+        tokenUsage: tokenUsage.snapshot(),
       })
 
       return Response.json({ questions: FALLBACK_QUESTIONS, reflections: FALLBACK_REFLECTIONS })
@@ -1947,7 +2237,7 @@ export async function POST(request: Request) {
 
       try {
         const response = await client.messages.create({
-          model: sonnetGenerationModel,
+          model: regenerateModel,
           max_tokens: regenerationMaxTokens,
           temperature: 0.45,
           system: getCachedSystemPrompt(REGENERATE_SYSTEM_PROMPT),
@@ -1963,6 +2253,7 @@ export async function POST(request: Request) {
           ],
         })
 
+        tokenUsage.add(getAnthropicTokenUsage(response, regenerateModel))
         raw = getResponseText(response.content)
         const jsonMatch = raw.match(/\{[\s\S]*\}/)
         const parsed: unknown = JSON.parse(jsonMatch ? jsonMatch[0] : raw)
@@ -1992,6 +2283,7 @@ export async function POST(request: Request) {
       reflectionCount: reflections.length,
       previousQuestionCount: previousQuestions.length,
       request,
+      tokenUsage: tokenUsage.snapshot(),
     })
 
     return Response.json({
@@ -2027,6 +2319,7 @@ export async function POST(request: Request) {
         reflectionCount: cachedResult.reflections.length,
         previousQuestionCount: previousQuestions.length,
         request,
+        tokenUsage: createZeroTokenUsageSnapshot(),
       })
 
       return Response.json({
@@ -2042,7 +2335,7 @@ export async function POST(request: Request) {
     sourceKind === "topic"
       ? sourceOrigin === "example_topic"
         ? getExampleTopicGroundingDecision(source)
-        : await resolveTopicGroundingDecision(source)
+        : await resolveTopicGroundingDecision(source, tokenUsage)
       : null
   const forceTopicWebSearch = topicGroundingDecision?.useWebSearch ?? false
   let cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, forceTopicWebSearch)
@@ -2056,14 +2349,16 @@ export async function POST(request: Request) {
       fetchViaJina(source, youtubeReaderTimeoutMs),
       fetchYouTubeMetadata(source),
     ])
-    const readerContent = readerResult.status === "fulfilled" ? readerResult.value : ""
+    const rawReaderContent = readerResult.status === "fulfilled" ? readerResult.value : ""
     const metadata = metadataResult.status === "fulfilled" ? metadataResult.value : null
+    const readerContent = await compressContentWithGemini(rawReaderContent, tokenUsage)
 
     content = buildYouTubeContent(metadata, readerContent)
     contentResolved = Boolean(content.trim())
   } else if (sourceKind === "url") {
     try {
-      content = await fetchViaJina(source)
+      const rawContent = await fetchViaJina(source)
+      content = await compressContentWithGemini(rawContent, tokenUsage)
     } catch {
       content = source
       contentResolved = false
@@ -2087,6 +2382,7 @@ export async function POST(request: Request) {
       errorCode: "link_parse_failed",
       previousQuestionCount: previousQuestions.length,
       request,
+      tokenUsage: tokenUsage.snapshot(),
     })
     return linkParseFailureResponse()
   }
@@ -2107,8 +2403,9 @@ export async function POST(request: Request) {
   let raw = ""
 
   try {
+    const generationModel = getInitialGenerationModel(sourceKind, forceTopicWebSearch)
     const response = await client.messages.create({
-      model: getInitialGenerationModel(sourceKind, forceTopicWebSearch),
+      model: generationModel,
       max_tokens: forceTopicWebSearch ? groundedGenerationMaxTokens : generationMaxTokens,
       temperature: forceTopicWebSearch ? 0.25 : 0.35,
       system: getCachedSystemPrompt(SYSTEM_PROMPT),
@@ -2127,6 +2424,7 @@ export async function POST(request: Request) {
         : {}),
     })
 
+    tokenUsage.add(getAnthropicTokenUsage(response, generationModel))
     raw = getResponseText(response.content)
   } catch (error) {
     console.error(error)
@@ -2145,13 +2443,14 @@ export async function POST(request: Request) {
         errorCode: TOKEN_EXHAUSTED_CODE,
         previousQuestionCount: previousQuestions.length,
         request,
+        tokenUsage: tokenUsage.snapshot(),
       })
       return tokenExhaustedResponse()
     }
 
     if (sourceKind === "topic") {
       try {
-        raw = await generateTopicRawWithoutWebSearch(source)
+        raw = await generateTopicRawWithoutWebSearch(source, tokenUsage)
         responseUseWebSearch = false
         factProvider = null
         factGroundingStatus = null
@@ -2175,6 +2474,7 @@ export async function POST(request: Request) {
             errorCode: TOKEN_EXHAUSTED_CODE,
             previousQuestionCount: previousQuestions.length,
             request,
+            tokenUsage: tokenUsage.snapshot(),
           })
           return tokenExhaustedResponse()
         }
@@ -2192,6 +2492,7 @@ export async function POST(request: Request) {
           errorCode: "generate_model_error",
           previousQuestionCount: previousQuestions.length,
           request,
+          tokenUsage: tokenUsage.snapshot(),
         })
         return Response.json(buildUngroundedTopicFallback(source))
       }
@@ -2213,6 +2514,7 @@ export async function POST(request: Request) {
         reflectionCount: FALLBACK_REFLECTIONS.length,
         previousQuestionCount: previousQuestions.length,
         request,
+        tokenUsage: tokenUsage.snapshot(),
       })
 
       return Response.json({
@@ -2234,7 +2536,7 @@ export async function POST(request: Request) {
 
     if (!retriedTopicWithoutWebSearch) {
       try {
-        const retryPayload = parseQuestionPayload(await generateTopicRawWithoutWebSearch(source))
+        const retryPayload = parseQuestionPayload(await generateTopicRawWithoutWebSearch(source, tokenUsage))
         retriedTopicWithoutWebSearch = true
 
         if (retryPayload.hasCompleteModelPayload) {
@@ -2265,6 +2567,7 @@ export async function POST(request: Request) {
             errorCode: TOKEN_EXHAUSTED_CODE,
             previousQuestionCount: previousQuestions.length,
             request,
+            tokenUsage: tokenUsage.snapshot(),
           })
           return tokenExhaustedResponse()
         }
@@ -2285,6 +2588,7 @@ export async function POST(request: Request) {
         errorCode: forceTopicWebSearch ? "grounded_response_incomplete" : "topic_response_incomplete",
         previousQuestionCount: previousQuestions.length,
         request,
+        tokenUsage: tokenUsage.snapshot(),
       })
 
       return Response.json(buildUngroundedTopicFallback(source))
@@ -2325,6 +2629,7 @@ export async function POST(request: Request) {
     reflectionCount: reflections.length,
     previousQuestionCount: previousQuestions.length,
     request,
+    tokenUsage: tokenUsage.snapshot(),
   })
 
   return Response.json({ summary, questions, reflections, cacheHit: false })

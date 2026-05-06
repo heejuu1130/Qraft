@@ -2243,12 +2243,12 @@ export default function Hero() {
                       02 / Philosophy
                     </p>
                     <div className="mt-6 h-px w-full bg-[#d9ad73]/16" />
-                    <h2 className="mt-8 text-2xl font-medium leading-[1.36] tracking-normal [word-break:keep-all] sm:text-3xl lg:text-[34px]">
+                    <h2 className="mt-8 text-2xl font-medium leading-[1.36] tracking-normal [word-break:keep-all] sm:text-3xl sm:leading-[1.24] lg:text-[34px] lg:leading-[1.2]">
                       {ownershipQuestionLines.map((line, index) => (
                         <span
                           key={line}
                           className={`qraft-ownership-line ${
-                            index === 0 ? "qraft-ownership-line-own" : "qraft-ownership-line-change mt-2"
+                            index === 0 ? "qraft-ownership-line-own" : "qraft-ownership-line-change mt-2 sm:mt-1.5"
                           }`}
                         >
                           {line}

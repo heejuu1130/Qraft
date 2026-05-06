@@ -524,9 +524,9 @@ export default function Hero() {
   const { user, signOut } = useAuth()
   const { bgmOn, toggleBgm } = useBgm()
   const {
+    backgroundMotionMode,
     pageVisible,
     pauseCssMotion,
-    reduceShaderLoad,
     renderShader,
   } = usePerformanceMode()
   const questionHistoryScopedKey = getScopedStorageKey(questionHistoryStorageKey, user?.id)
@@ -548,15 +548,59 @@ export default function Hero() {
   const isRefined = isLoading || isReady
   const baseSpeed = isRefined ? 0.25 : 0.5
   const speed = isMidnightInsight ? baseSpeed * 0.5 : baseSpeed
-  const shaderSpeed = reduceShaderLoad ? speed * 0.38 : speed
-  const renderLayeredShaders = renderShader && !reduceShaderLoad
-  const backgroundTreatment = isReady
-    ? "scale-[1.03] blur-[14px]"
+  const fullBackgroundActive = backgroundMotionMode === "full"
+  const enhancingBackgroundActive = backgroundMotionMode === "enhancing"
+  const dynamicBackgroundActive = backgroundMotionMode !== "frozen"
+  const fullLayerProgress = fullBackgroundActive ? 1 : enhancingBackgroundActive ? 0.42 : 0
+  const shaderSpeed =
+    fullBackgroundActive
+      ? speed
+      : enhancingBackgroundActive
+        ? speed * 0.42
+        : dynamicBackgroundActive
+        ? speed * 0.28
+        : 0
+  const renderLayeredShaders = renderShader && (backgroundMotionMode === "warming" || enhancingBackgroundActive || fullBackgroundActive)
+  const processBackgroundActive = isLanding && processSectionActive
+  const silentBackgroundActive = isLanding && silentSectionActive
+  const processShaderOpacity = processBackgroundActive ? 0.8 * fullLayerProgress : 0
+  const silentShaderOpacity = silentBackgroundActive ? fullLayerProgress : 0
+  const processFallbackOpacity = processBackgroundActive ? 0.8 * (1 - fullLayerProgress) : 0
+  const silentFallbackOpacity = silentBackgroundActive ? 1 - fullLayerProgress : 0
+  const ambientGlowOpacity = fullBackgroundActive ? 1 : enhancingBackgroundActive ? 0.28 : 0
+  const backgroundScaleTreatment = isReady
+    ? "scale-[1.03]"
     : isRevealing
-      ? "scale-105 blur-[28px]"
+      ? "scale-105"
       : isLoading
-        ? "scale-[1.03] blur-[14px]"
-        : "scale-100 blur-0"
+        ? "scale-[1.03]"
+        : "scale-100"
+  const backgroundBlurTreatment = isReady
+    ? fullBackgroundActive
+      ? "blur-[14px]"
+      : enhancingBackgroundActive
+        ? "blur-[10px]"
+        : dynamicBackgroundActive
+        ? "blur-[6px]"
+        : "blur-0"
+    : isRevealing
+      ? fullBackgroundActive
+        ? "blur-[28px]"
+        : enhancingBackgroundActive
+          ? "blur-[18px]"
+          : dynamicBackgroundActive
+          ? "blur-[8px]"
+          : "blur-0"
+      : isLoading
+        ? fullBackgroundActive
+          ? "blur-[14px]"
+          : enhancingBackgroundActive
+            ? "blur-[10px]"
+            : dynamicBackgroundActive
+            ? "blur-[6px]"
+            : "blur-0"
+        : "blur-0"
+  const backgroundTreatment = `${backgroundScaleTreatment} ${backgroundBlurTreatment}`
   const landingDisplayCopy = isMidnightInsight ? midnightInsightCopy : landingCopy
   const displayedSummary = formatSummaryForDisplay(summary)
   const displayedSummaryLines = getSummaryDisplayLines(displayedSummary)
@@ -1973,7 +2017,7 @@ export default function Hero() {
 
       {/* 배경 그라디언트 */}
       <div
-        className={`${isLanding ? "fixed" : "absolute"} inset-0 transition-[filter,transform] duration-[1600ms] ease-in-out ${backgroundTreatment}`}
+        className={`${isLanding ? "fixed" : "absolute"} inset-0 transition-[filter,transform] duration-[2200ms] ease-in-out ${backgroundTreatment}`}
       >
         <div
           className="absolute inset-0"
@@ -1991,52 +2035,47 @@ export default function Hero() {
         )}
         {renderLayeredShaders && (
           <MeshGradient
-            className={`absolute inset-0 h-full w-full transition-opacity duration-[1500ms] ease-in-out ${
-              isLanding && processSectionActive ? "opacity-80" : "opacity-0"
-            }`}
+            className="absolute inset-0 h-full w-full transition-opacity duration-[3600ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
             colors={processRecordColors}
             speed={shaderSpeed * 0.92}
+            style={{ opacity: processShaderOpacity } as CSSProperties}
           />
         )}
-        {!renderLayeredShaders && (
-          <div
-            className={`absolute inset-0 transition-opacity duration-[1500ms] ease-in-out ${
-              isLanding && processSectionActive ? "opacity-80" : "opacity-0"
-            }`}
-            style={{
-              background:
-                "radial-gradient(circle at 35% 35%, rgba(162, 79, 37, 0.42), transparent 42%), linear-gradient(135deg, rgba(21, 9, 6, 0.18), rgba(255, 210, 138, 0.18))",
-            }}
-          />
-        )}
+        <div
+          className="absolute inset-0 transition-opacity duration-[3600ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+          style={{
+            background:
+              "radial-gradient(circle at 35% 35%, rgba(162, 79, 37, 0.42), transparent 42%), linear-gradient(135deg, rgba(21, 9, 6, 0.18), rgba(255, 210, 138, 0.18))",
+            opacity: processFallbackOpacity,
+          }}
+        />
         <div
           className={`absolute inset-0 bg-[#080403]/37 transition-opacity duration-[1500ms] ease-in-out ${
             isLanding && processSectionActive ? "opacity-100" : "opacity-0"
           }`}
         />
-        {!renderLayeredShaders && (
-          <div
-            className={`absolute inset-0 transition-opacity duration-[1400ms] ease-in-out ${
-              isLanding && silentSectionActive ? "opacity-100" : "opacity-0"
-            }`}
-            style={{
-              background:
-                "radial-gradient(circle at 65% 30%, rgba(82, 111, 87, 0.42), transparent 45%), linear-gradient(135deg, rgba(7, 22, 19, 0.82), rgba(18, 48, 39, 0.74) 58%, rgba(216, 195, 164, 0.18))",
-            }}
-          />
-        )}
+        <div
+          className="absolute inset-0 transition-opacity duration-[3600ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+          style={{
+            background:
+              "radial-gradient(circle at 65% 30%, rgba(82, 111, 87, 0.42), transparent 45%), linear-gradient(135deg, rgba(7, 22, 19, 0.82), rgba(18, 48, 39, 0.74) 58%, rgba(216, 195, 164, 0.18))",
+            opacity: silentFallbackOpacity,
+          }}
+        />
         {renderLayeredShaders && (
           <MeshGradient
-            className={`absolute inset-0 h-full w-full transition-opacity duration-[1400ms] ease-in-out ${
-              isLanding && silentSectionActive ? "opacity-100" : "opacity-0"
-            }`}
+            className="absolute inset-0 h-full w-full transition-opacity duration-[3600ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
             colors={silentRecordColors}
             speed={shaderSpeed * 0.85}
+            style={{ opacity: silentShaderOpacity } as CSSProperties}
           />
         )}
 
-        {!reduceShaderLoad && (
-          <div className="pointer-events-none absolute inset-0">
+        {renderLayeredShaders && (
+          <div
+            className="pointer-events-none absolute inset-0 transition-opacity duration-[3600ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+            style={{ opacity: ambientGlowOpacity }}
+          >
             <div
               className="absolute left-1/3 top-1/4 h-32 w-32 rounded-full bg-[#d8a66d]/10 blur-3xl animate-pulse"
               style={{ animationDuration: `${3 / speed}s` }}
@@ -2339,7 +2378,7 @@ export default function Hero() {
                   타인의 고찰
                 </h2>
                 <p className="mt-3 max-w-2xl text-sm font-medium leading-[1.75] text-[#cbd8cf]/48 [word-break:keep-all] sm:text-[15px]">
-                  본 고찰은 사용자의 깊은 사유를 돕기 위해, 입력된 주제에 가상의 페르소나를 이입하여 설계한 관점의 예시입니다.
+                  본 고찰은 사용자의 깊은 사유를 돕기 위해, 가상의 페르소나를 이입하여 설계된 한 관점의 예시입니다
                 </p>
                 <blockquote
                   className={`qraft-scroll-rise qraft-silent-quote mt-9 max-w-3xl text-xl font-medium leading-[1.55] tracking-normal [word-break:keep-all] sm:text-2xl sm:leading-[1.5] ${

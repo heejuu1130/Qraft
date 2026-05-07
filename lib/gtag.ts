@@ -1,4 +1,5 @@
 import { mixpanelTrack } from "@/lib/mixpanel"
+import { shouldDisableClientAnalytics } from "@/lib/analytics-env"
 
 declare global {
   interface Window {
@@ -62,6 +63,7 @@ function ensureGtagQueue() {
 
 function send(name: string, params?: Record<string, unknown>) {
   if (typeof window === "undefined") return false
+  if (shouldDisableClientAnalytics()) return false
 
   const pageParams = {
     page_location: window.location.href,

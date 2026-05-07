@@ -1,4 +1,5 @@
 import mixpanel from "mixpanel-browser"
+import { shouldDisableClientAnalytics } from "@/lib/analytics-env"
 
 type MixpanelProperties = Record<string, unknown>
 
@@ -15,6 +16,7 @@ function cleanProperties(properties?: MixpanelProperties) {
 
 function initMixpanel() {
   if (initialized) return true
+  if (shouldDisableClientAnalytics()) return false
   if (typeof window === "undefined" || !mixpanelToken) return false
 
   mixpanel.init(mixpanelToken, {

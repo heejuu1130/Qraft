@@ -28,6 +28,7 @@ const cacheFactualTopicTtlMs = 7 * 24 * 60 * 60 * 1000
 const cacheTopicTtlMs = 30 * 24 * 60 * 60 * 1000
 const cacheLinkTtlMs = 60 * 24 * 60 * 60 * 1000
 const questionCacheVersion = "v7"
+const qraftServiceKnowledgeVersion = "qraft_service_v1"
 const tokenStrategyVersion = process.env.QRAFT_TOKEN_STRATEGY_VERSION?.trim() || "usage_v1"
 const tokenEventColumnNames = [
   "token_provider",
@@ -283,6 +284,22 @@ const abstractRouterPrototypes = [
   "자본주의와 욕망",
 ]
 
+const qraftServiceKnowledgeBase = `Qraft 내부 지식베이스:
+- Qraft는 답을 빠르게 주는 서비스가 아니라, 사용자가 텍스트와 주제의 이면을 마주하고 자기 관점을 세우도록 질문을 설계하는 서비스입니다.
+- 사용자는 링크, 글, 짧은 주제를 남기고 Qraft는 요약, 질문 3개, 타인의 고찰 예시를 통해 생각의 입구를 만듭니다.
+- 핵심 가치는 정보의 소유가 아니라 존재의 변화입니다. 쌓아둔 정보가 사용자의 일부가 되도록 멈춤, 사유, 질문, 고찰의 구조를 제공합니다.
+- Qraft는 정답을 검사하지 않고, 사유가 시작되는 정확한 입구를 설계합니다.
+- 좋은 질문은 정답을 얻기 위한 수단이 아니라, 사유의 길을 잃지 않게 하는 등불입니다.
+- 타인의 고찰은 정답을 베끼기 위한 자료가 아니라, 서로 다른 시선과 부딪히며 자신의 관점을 단단하게 만드는 사유의 흔적입니다.
+- Qraft의 경험은 투영, 균열, 퇴적으로 이어집니다. 투영은 관심 있는 링크나 단어를 놓는 단계이고, 균열은 당연함이 깨지는 질문을 만나는 단계이며, 퇴적은 요약과 질문과 타인의 고찰이 쌓여 관점이 단단해지는 단계입니다.
+- 브랜드 톤은 차분하고 단정하며 절제되어 있습니다. 과도하게 친절하거나 홍보적인 챗봇 말투보다, 조용하지만 깊고 구조적인 문장을 지향합니다.
+- Qraft는 architect of silence입니다. 구조적이고 절제된 분위기 속에서 사용자가 텍스트 뒤의 전제와 긴장, 자기 생각의 방향을 마주하게 합니다.
+
+Qraft를 설명할 때의 기준:
+- Qraft를 단순한 AI 질문 생성기나 요약 도구로 축소하지 않습니다.
+- Qraft에 관한 입력은 서비스 가치, 사용자가 얻는 변화, 질문과 고찰의 역할을 중심으로 다룹니다.
+- 외부 검색이나 추정 대신 이 내부 지식베이스를 우선합니다.`
+
 const PERSONA = `Qraft의 브랜드 톤:
 - Qraft는 정답을 검사하지 않고, 사유가 시작되는 정확한 입구를 설계합니다.
 - 문체는 차분하고 단정합니다. 멋을 부리기보다 핵심 긴장, 전제, 선택의 기준을 선명하게 드러냅니다.
@@ -349,6 +366,8 @@ const SYSTEM_PROMPT = [
   3. 생각할 점: 한 문장
 - 링크/긴 텍스트는 핵심 주장과 맥락을, 짧은 주제는 바라볼 관점을 요약합니다.
 - 짧은 주제에 참고 내용이 제공된 경우, 반드시 그 검색 결과에서 확인되는 실제 정보와 맥락을 기반으로 요약과 질문을 만듭니다.
+- 단, Qraft 내부 지식베이스가 참고 내용으로 제공된 경우 그것은 검색 결과가 아니라 서비스 내부 기준입니다. 외부 검색이나 추정 대신 내부 지식베이스를 Qraft에 대한 기준으로 삼습니다.
+- Qraft에 관한 입력은 단순 기능 소개보다 서비스 가치, 사용자가 얻는 변화, 질문과 고찰의 역할을 중심으로 다룹니다.
 - 사용자 입력 원문에 있는 주제어를 잃지 말고, 참고 내용이 검색 결과일 때는 검색 결과의 잡음이나 광고성 문구를 핵심으로 삼지 않습니다.
 - 검색 결과 중 사용자 원문과 직접 관련이 낮은 결과는 사용하지 않습니다. 결과 여러 개가 서로 다르면 공통으로 확인되는 내용과 가장 직접적인 결과를 우선합니다.
 - 짧은 주제가 web_search나 검색 기반 참고 내용으로 보강된 경우, 실존 인물, 사건, 작품, 브랜드, 단체, 장소, 수치, 시기 같은 사실성 주제는 반드시 확인된 내용만 사용합니다.
@@ -1079,6 +1098,7 @@ type TopicGroundingReason =
   | "named_work_marker"
   | "mixed_entity_signal"
   | "example_topic"
+  | "qraft_knowledge_base"
   | "gemini_router_abstract"
   | "gemini_router_current_fact"
   | "gemini_router_external_reference"
@@ -1107,6 +1127,7 @@ const topicGroundingReasons = new Set<string>([
   "named_work_marker",
   "mixed_entity_signal",
   "example_topic",
+  "qraft_knowledge_base",
   "gemini_router_abstract",
   "gemini_router_current_fact",
   "gemini_router_external_reference",
@@ -1155,6 +1176,30 @@ function getCachedTopicGroundingDecision(cachedResult: QuestionCacheHit): TopicG
     semanticScoreFactual: null,
     useWebSearch: cachedResult.useWebSearch ?? false,
   }
+}
+
+function normalizeQraftKnowledgeQueryText(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function isQraftKnowledgeQuery(source: string) {
+  const normalized = normalizeQraftKnowledgeQueryText(source)
+  const hasQraftMention = /(?:^|[^a-z0-9])qraft(?:[^a-z0-9]|$)/.test(normalized) || normalized.includes("큐래프트")
+
+  if (!hasQraftMention) return false
+  if (/^(?:qraft|큐래프트)[?.!。！？\s]*$/.test(normalized)) return true
+
+  return /(?:뭐|무엇|이란|란|소개|설명|정보|서비스|기능|가치|철학|미션|비전|정체성|컨셉|브랜드|목적|차별|어떤|알려|대해|관해|about)/.test(
+    normalized
+  )
+}
+
+function getQraftKnowledgeReference(source: string) {
+  return isQraftKnowledgeQuery(source) ? qraftServiceKnowledgeBase : null
 }
 
 function normalizeRouterText(value: string) {
@@ -1337,6 +1382,7 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
   })
 
   if (!value) return withSemanticScores({ reason: "empty", useWebSearch: false })
+  if (isQraftKnowledgeQuery(raw)) return withSemanticScores({ reason: "qraft_knowledge_base", useWebSearch: false })
   if (hasTemporalOrNumericSignal) return withSemanticScores({ reason: "numbers_or_dates", useWebSearch: true })
   if (hasExternalReferenceKeyword) return withSemanticScores({ reason: "external_reference", useWebSearch: true })
   if (hasNamedWorkMarker) return withSemanticScores({ reason: "named_work_marker", useWebSearch: true })
@@ -1665,6 +1711,7 @@ function buildModelInput({
   resolved: boolean
   forceWebSearch?: boolean
 }) {
+  const qraftKnowledgeReference = sourceKind === "topic" ? getQraftKnowledgeReference(source) : null
   const sourceLabel =
     sourceKind === "youtube"
       ? "유튜브 링크"
@@ -1688,22 +1735,28 @@ function buildModelInput({
           ].join(" ")
         : "참고 내용: 개념형 주제입니다. 실존 인물, 사건, 작품 배경, 저자, 연도, 소속, 수치 같은 사실을 덧붙이지 말고 입력어 자체가 품은 관점과 긴장만 다루세요."
       : "참고 내용: 충분히 확보되지 않았습니다. 사용자 원문에서 확인할 수 있는 범위를 넘어서 단정하지 마세요."
+  const resolvedContentLabel = qraftKnowledgeReference
+    ? "Qraft 내부 지식베이스"
+    : sourceKind === "topic"
+      ? "검색 기반 참고 내용"
+      : "참고 내용"
 
   return [
     `입력 유형: ${sourceLabel}`,
     `사용자 원문:\n${source}`,
     resolved && usableContent && usableContent !== source
-      ? `${sourceKind === "topic" ? "검색 기반 참고 내용" : "참고 내용"}:\n${usableContent}`
+      ? `${resolvedContentLabel}:\n${usableContent}`
       : contentGuide,
   ].join("\n\n")
 }
 
 async function generateTopicRawWithoutWebSearch(source: string, tokenUsage?: TokenUsageAccumulator) {
+  const qraftKnowledgeReference = getQraftKnowledgeReference(source)
   const retryInput = buildModelInput({
     source,
-    content: source,
+    content: qraftKnowledgeReference ?? source,
     sourceKind: "topic",
-    resolved: false,
+    resolved: Boolean(qraftKnowledgeReference),
     forceWebSearch: false,
   })
   const model = getInitialGenerationModel("topic", false)
@@ -1922,7 +1975,12 @@ function getQuestionCacheSourceKey(source: string, sourceKind: SourceKind) {
 
   if (!normalizedSource) return null
 
-  return createHash("sha256").update(`${questionCacheVersion}:${sourceKind}:${normalizedSource}`).digest("hex")
+  const cacheVersion =
+    sourceKind === "topic" && isQraftKnowledgeQuery(source)
+      ? `${questionCacheVersion}:${qraftServiceKnowledgeVersion}`
+      : questionCacheVersion
+
+  return createHash("sha256").update(`${cacheVersion}:${sourceKind}:${normalizedSource}`).digest("hex")
 }
 
 function hasFreshnessSignal(source: string) {
@@ -2364,8 +2422,10 @@ export async function POST(request: Request) {
       contentResolved = false
     }
   } else if (sourceKind === "topic") {
-    content = source
-    contentResolved = false
+    const qraftKnowledgeReference = getQraftKnowledgeReference(source)
+
+    content = qraftKnowledgeReference ?? source
+    contentResolved = Boolean(qraftKnowledgeReference)
   } else {
     content = source
   }

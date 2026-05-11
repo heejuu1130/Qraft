@@ -8,7 +8,7 @@ const client = new Anthropic({ timeout: 30000 })
 const sonnetGenerationModel = "claude-sonnet-4-6"
 const fastGenerationModel = "claude-haiku-4-5"
 const contentCharacterLimit = 8000
-const jinaReaderTimeoutMs = 8000
+const jinaReaderTimeoutMs = 12000
 const youtubeReaderTimeoutMs = 5000
 const youtubeMetadataTimeoutMs = 5000
 const generationMaxTokens = 1250
@@ -2466,7 +2466,7 @@ export async function POST(request: Request) {
     const generationModel = getInitialGenerationModel(sourceKind, forceTopicWebSearch)
     const response = await client.messages.create({
       model: generationModel,
-      max_tokens: forceTopicWebSearch ? groundedGenerationMaxTokens : generationMaxTokens,
+      max_tokens: (forceTopicWebSearch || sourceKind === "url" || sourceKind === "youtube") ? groundedGenerationMaxTokens : generationMaxTokens,
       temperature: forceTopicWebSearch ? 0.25 : 0.35,
       system: getCachedSystemPrompt(SYSTEM_PROMPT),
       messages: [{ role: "user", content: modelInput }],

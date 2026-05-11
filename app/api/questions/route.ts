@@ -546,6 +546,7 @@ type QuestionRateLimitEntry = {
 }
 
 const questionRateLimitStore = new Map<string, QuestionRateLimitEntry>()
+const inFlightQuestionResponses = new Map<string, Promise<Response>>()
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null
@@ -709,6 +710,75 @@ function getClientIp(request: Request): string {
   return forwardedFor || realIp || cfConnectingIp || "unknown"
 }
 
+function isLocalOrPrivateHostname(hostname: string) {
+  const normalizedHostname = hostname.toLowerCase()
+
+  if (["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(normalizedHostname)) return true
+  if (normalizedHostname.endsWith(".local")) return true
+
+  const parts = normalizedHostname.split(".").map((part) => Number(part))
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false
+
+  const [first, second] = parts
+
+  return first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168)
+}
+
+function shouldRecordQuestionGenerationEvent(request: Request) {
+  if (process.env.QRAFT_RECORD_LOCAL_EVENTS === "true") return true
+  if (process.env.NODE_ENV !== "production") return false
+
+  try {
+    return !isLocalOrPrivateHostname(new URL(request.url).hostname)
+  } catch {
+    return true
+  }
+}
+
+function getInFlightQuestionRequestKey({
+  existingSummary,
+  previousQuestions,
+  request,
+  source,
+  sourceOrigin,
+}: {
+  existingSummary: string
+  previousQuestions: string[]
+  request: Request
+  source: string
+  sourceOrigin: "example_topic" | null
+}) {
+  const payload = {
+    client: getClientIp(request),
+    mode: existingSummary ? "regenerate" : "generate",
+    previousQuestions,
+    source,
+    sourceOrigin,
+    summary: existingSummary,
+  }
+
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex")
+}
+
+async function withInFlightQuestionResponse(key: string, factory: () => Promise<Response>) {
+  const existingResponse = inFlightQuestionResponses.get(key)
+
+  if (existingResponse) {
+    return (await existingResponse).clone()
+  }
+
+  const responsePromise = factory()
+  inFlightQuestionResponses.set(key, responsePromise)
+
+  try {
+    return (await responsePromise).clone()
+  } finally {
+    if (inFlightQuestionResponses.get(key) === responsePromise) {
+      inFlightQuestionResponses.delete(key)
+    }
+  }
+}
+
 function pruneQuestionRateLimitStore(now: number) {
   for (const [key, entry] of questionRateLimitStore) {
     if (entry.resetAt <= now) {
@@ -864,7 +934,47 @@ async function fetchViaJina(url: string, timeoutMs = jinaReaderTimeoutMs): Promi
   }
 
   const text = await response.text()
-  return text.slice(0, contentCharacterLimit)
+  return cleanReaderContent(text).slice(0, contentCharacterLimit)
+}
+
+function isReaderMetadataLine(line: string) {
+  return /^(?:URL Source|URL|Markdown Content):\s*/i.test(line.trim())
+}
+
+function getReaderLineFingerprint(line: string) {
+  return line.replace(/\s+/g, " ").trim().toLowerCase()
+}
+
+function cleanReaderContent(content: string) {
+  const cleanedLines: string[] = []
+  let previousFingerprint = ""
+  let blankLineCount = 0
+
+  content
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .forEach((line) => {
+      const trimmedLine = line.trim()
+
+      if (isReaderMetadataLine(trimmedLine)) return
+
+      if (!trimmedLine) {
+        blankLineCount += 1
+        if (blankLineCount <= 1) cleanedLines.push("")
+        previousFingerprint = ""
+        return
+      }
+
+      blankLineCount = 0
+      const fingerprint = getReaderLineFingerprint(trimmedLine)
+
+      if (fingerprint && fingerprint === previousFingerprint) return
+
+      cleanedLines.push(line.trimEnd())
+      previousFingerprint = fingerprint
+    })
+
+  return cleanedLines.join("\n").trim()
 }
 
 const FALLBACK_QUESTIONS = [
@@ -2121,6 +2231,8 @@ async function recordQuestionGenerationEvent({
   topicGroundingDecision = null,
   useWebSearch = null,
 }: QuestionGenerationEventPayload) {
+  if (!shouldRecordQuestionGenerationEvent(request)) return
+
   const normalizedSourceText = getQuestionGenerationEventSourceText(sourceText)
   const path = new URL(request.url).pathname
   const userAgent = request.headers.get("user-agent")?.slice(0, 500) ?? null
@@ -2214,6 +2326,15 @@ export async function POST(request: Request) {
     return questionRateLimitResponse(rateLimit.retryAfterSeconds)
   }
 
+  const inFlightKey = getInFlightQuestionRequestKey({
+    existingSummary,
+    previousQuestions,
+    request,
+    source,
+    sourceOrigin,
+  })
+
+  return withInFlightQuestionResponse(inFlightKey, async () => {
   const tokenUsage = createTokenUsageAccumulator()
 
   // 재생성 모드: 기존 요약으로 질문+고찰만 생성
@@ -2693,4 +2814,5 @@ export async function POST(request: Request) {
   })
 
   return Response.json({ summary, questions, reflections, cacheHit: false })
+  })
 }

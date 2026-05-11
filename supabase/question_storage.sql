@@ -40,6 +40,39 @@ create policy "Users can delete own question history"
   to authenticated
   using (user_id = auth.uid());
 
+create table if not exists public.app_admins (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+alter table public.app_admins enable row level security;
+
+grant select on table public.app_admins to authenticated;
+
+drop policy if exists "Users can read own admin flag" on public.app_admins;
+
+create policy "Users can read own admin flag"
+  on public.app_admins
+  for select
+  to authenticated
+  using (user_id = auth.uid());
+
+create or replace function public.is_app_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.app_admins
+    where user_id = auth.uid()
+  );
+$$;
+
+grant execute on function public.is_app_admin() to authenticated;
+
 create table if not exists public.saved_questions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,

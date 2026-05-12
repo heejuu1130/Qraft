@@ -64,6 +64,7 @@ type DbCommunityQuestionLikeRow = {
 
 type DbLegacyCommunityRow = {
   id: string
+  user_id: string | null
   source: string
   summary: string | null
   question: string
@@ -179,12 +180,12 @@ const getOtherAuthorLabel = (index: number) =>
 
 const getCommunityAuthorLabels = (
   entries: CommunityReflectionEntry[],
-  isOwnEntry: (entry: CommunityReflectionEntry) => boolean
+  isAuthorEntry: (entry: CommunityReflectionEntry) => boolean
 ) => {
   const labels = new Map<string, string>()
 
   entries.forEach((entry) => {
-    if (isOwnEntry(entry)) return
+    if (isAuthorEntry(entry)) return
 
     const authorKey = getAnonymousAuthorKey(entry)
 
@@ -329,7 +330,7 @@ const mapLegacyRemoteThread = (item: DbLegacyCommunityRow): CommunityThread | nu
   return {
     id: `legacy-remote-${item.id}`,
     remoteQuestionId: null,
-    createdBy: null,
+    createdBy: item.user_id,
     source: item.source,
     summary: item.summary ?? "",
     question: item.question,
@@ -337,7 +338,7 @@ const mapLegacyRemoteThread = (item: DbLegacyCommunityRow): CommunityThread | nu
       id: `legacy-remote-${item.id}-${entry.id}`,
       text: entry.text,
       authorLabel: "생각",
-      authorId: null,
+      authorId: item.user_id,
       createdAt: entry.createdAt || sharedAt,
       updatedAt: entry.updatedAt || sharedAt,
     })),
@@ -516,7 +517,7 @@ export default function CommunityPage() {
 
       const legacyResponsePromise = supabase
         .from("saved_questions")
-        .select("id, source, summary, question, question_index, personal_note, shared_at, updated_at, created_at")
+        .select("id, user_id, source, summary, question, question_index, personal_note, shared_at, updated_at, created_at")
         .eq("visibility", "community")
         .order("shared_at", { ascending: false, nullsFirst: false })
         .limit(50)
@@ -707,6 +708,9 @@ export default function CommunityPage() {
           thread.createdBy === user.id ||
           (!thread.createdBy && thread.reflections.some(isOwnReflection)))
     )
+
+  const isThreadAuthorReflection = (thread: CommunityThread, entry: CommunityReflectionEntry) =>
+    Boolean(thread.createdBy && entry.authorId === thread.createdBy)
 
   const removeReflectionFromView = (threadId: string, reflectionId: string) => {
     setThreads((currentThreads) =>
@@ -1234,7 +1238,9 @@ export default function CommunityPage() {
               const draft = reflectionDrafts[thread.id] ?? ""
               const savingReflection = savingReflectionIds.has(thread.id)
               const threadCanDelete = canDeleteThread(sourceThread)
-              const communityAuthorLabels = getCommunityAuthorLabels(thread.reflections, isOwnReflection)
+              const communityAuthorLabels = getCommunityAuthorLabels(thread.reflections, (entry) =>
+                isThreadAuthorReflection(thread, entry)
+              )
 
               return (
                 <article
@@ -1289,7 +1295,7 @@ export default function CommunityPage() {
                     <div className="mt-4 border-t border-[#d9ad73]/12 pt-4">
                       <div className="flex flex-col">
                         {thread.reflections.map((entry, entryIndex) => {
-                          const authorLabel = isOwnReflection(entry)
+                          const authorLabel = isThreadAuthorReflection(thread, entry)
                             ? "작성자"
                             : communityAuthorLabels.get(getAnonymousAuthorKey(entry)) ?? "타인 01"
 

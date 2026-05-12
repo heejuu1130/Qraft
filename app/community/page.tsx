@@ -360,6 +360,7 @@ export default function CommunityPage() {
   const [threadPendingDeletion, setThreadPendingDeletion] = useState<CommunityThread | null>(null)
   const [showMineOnly, setShowMineOnly] = useState(false)
   const [isCommunityAdmin, setIsCommunityAdmin] = useState(false)
+  const [showLoginRequiredModal, setShowLoginRequiredModal] = useState(false)
   const [loading, setLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState("")
   const communityViewSentRef = useRef(false)
@@ -971,7 +972,7 @@ export default function CommunityPage() {
     if (!draft) return
 
     if (!user && process.env.NODE_ENV !== "development") {
-      setErrorMessage("로그인 후 커뮤니티에 생각을 남길 수 있습니다.")
+      setShowLoginRequiredModal(true)
       return
     }
 
@@ -1219,7 +1220,7 @@ export default function CommunityPage() {
           </div>
         </div>
 
-        <section className="mt-4 grid items-start gap-5 pb-16 lg:grid-cols-2">
+        <section className="mt-4 grid min-w-0 grid-cols-1 items-start gap-5 pb-16 lg:grid-cols-2">
           {loading ? (
             <div className="border border-[#d9ad73]/15 bg-[#f5dfbd]/[0.04] p-8 text-center lg:col-span-2">
               <p className="text-sm font-medium text-[#f5dfbd]/48">커뮤니티 생각을 불러오고 있습니다.</p>
@@ -1245,9 +1246,9 @@ export default function CommunityPage() {
               return (
                 <article
                   key={thread.id}
-                  className="border border-[#d9ad73]/18 bg-[#120b07]/55 px-5 pb-5 pt-5 shadow-[0_18px_50px_rgba(13,8,5,0.34)] backdrop-blur-xl"
+                  className="w-full min-w-0 border border-[#d9ad73]/18 bg-[#120b07]/55 px-5 pb-5 pt-5 shadow-[0_18px_50px_rgba(13,8,5,0.34)] backdrop-blur-xl"
                 >
-                  <div className="mb-4 flex items-start justify-between gap-4">
+                  <div className="mb-5 flex items-start justify-between gap-4">
                     {thread.summary.trim() ? (
                       <button
                         type="button"
@@ -1434,6 +1435,46 @@ export default function CommunityPage() {
               >
                 삭제
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showLoginRequiredModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#080403]/70 px-5 backdrop-blur-md"
+          role="presentation"
+          onClick={() => setShowLoginRequiredModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="community-login-required-title"
+            className="w-full max-w-sm border border-[#d9ad73]/24 bg-[#120b07]/95 p-6 shadow-[0_24px_80px_rgba(13,8,5,0.72)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p
+              id="community-login-required-title"
+              className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2ad7c]/55"
+            >
+              로그인이 필요합니다
+            </p>
+            <p className="mt-4 text-sm font-medium leading-[1.75] text-[#f5dfbd]/72 [word-break:keep-all]">
+              커뮤니티에 생각을 남기려면 먼저 로그인해 주세요.
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowLoginRequiredModal(false)}
+                className="border border-[#d9ad73]/18 bg-[#f5dfbd]/[0.04] px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#f5dfbd]/46 transition-colors duration-300 hover:text-[#f5dfbd]/72 focus:outline-none"
+              >
+                닫기
+              </button>
+              <Link
+                href="/auth"
+                className="border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.08] px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#f5dfbd]/76 transition-colors duration-300 hover:border-[#efd3a2]/52 hover:text-[#fff4dc] focus:outline-none"
+              >
+                로그인
+              </Link>
             </div>
           </div>
         </div>

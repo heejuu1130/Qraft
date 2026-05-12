@@ -937,7 +937,7 @@ export default function ProfilePage() {
     return (
       <article
         key={item.id}
-        className="border border-[#d9ad73]/18 bg-[#120b07]/55 p-5 shadow-[0_18px_50px_rgba(13,8,5,0.34)] backdrop-blur-xl"
+        className="w-full min-w-0 border border-[#d9ad73]/18 bg-[#120b07]/55 p-5 shadow-[0_18px_50px_rgba(13,8,5,0.34)] backdrop-blur-xl"
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -976,7 +976,7 @@ export default function ProfilePage() {
             summary={item.summary}
           />
         )}
-        <p className={`${summaryOpen && hasSummary ? "mt-4" : "mt-2"} text-xl font-medium leading-[1.55] text-[#f5dfbd]/88 [overflow-wrap:anywhere] [word-break:keep-all]`}>
+        <p className={`${summaryOpen && hasSummary ? "mt-4" : "mt-3"} text-xl font-medium leading-[1.55] text-[#f5dfbd]/88 [overflow-wrap:anywhere] [word-break:keep-all]`}>
           {item.question}
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -1159,11 +1159,11 @@ export default function ProfilePage() {
         </div>
         {summaryOpen && item.summary.trim() && (
           <SummaryText
-            className="mb-4 mt-2 border-t border-[#d9ad73]/12 pt-4 text-[13px] font-medium leading-[1.75] text-[#f5dfbd]/50 [overflow-wrap:anywhere] [word-break:keep-all]"
+            className="mb-4 mt-3 border-t border-[#d9ad73]/12 pt-4 text-[13px] font-medium leading-[1.75] text-[#f5dfbd]/50 [overflow-wrap:anywhere] [word-break:keep-all]"
             summary={item.summary}
           />
         )}
-        <p className={`${summaryOpen && item.summary.trim() ? "" : "mt-2"} text-base font-medium leading-[1.6] text-[#f5dfbd]/86 [overflow-wrap:anywhere] [word-break:keep-all]`}>
+        <p className={`${summaryOpen && item.summary.trim() ? "" : "mt-3"} text-base font-medium leading-[1.6] text-[#f5dfbd]/86 [overflow-wrap:anywhere] [word-break:keep-all]`}>
           {item.question}
         </p>
         <div className="mt-4 border-t border-[#d9ad73]/12">
@@ -1396,7 +1396,7 @@ export default function ProfilePage() {
                         />
                       </div>
                     </div>
-                    <div className="mt-4">
+                    <div className="mt-5">
                       <SummaryText
                         className="text-sm leading-[1.7] text-[#f5dfbd]/58 [overflow-wrap:anywhere] [word-break:keep-all]"
                         summary={item.summary}
@@ -1459,7 +1459,7 @@ export default function ProfilePage() {
               {personalNoteGroups.length === 0 ? (
                 <EmptyState text="아직 내 고찰이 남겨진 질문이 없습니다." />
               ) : (
-                <div className="grid items-start gap-4 lg:grid-cols-2">
+                <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2">
                   {personalNoteGroups.map(renderPersonalNoteCard)}
                 </div>
               )}

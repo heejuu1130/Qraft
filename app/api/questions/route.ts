@@ -9,8 +9,13 @@ const sonnetGenerationModel = "claude-sonnet-4-6"
 const fastGenerationModel = "claude-haiku-4-5"
 const contentCharacterLimit = 8000
 const jinaReaderTimeoutMs = 12000
-const youtubeReaderTimeoutMs = 5000
+const jinaReaderRetryTimeoutMs = 18000
+const jinaReaderRetryDelayMs = 650
+const geminiGroundingTimeoutMs = 10000
+const urlGenerationMaxTokens = 1400
+const youtubeReaderTimeoutMs = 15000
 const youtubeMetadataTimeoutMs = 5000
+const youtubeReaderMinContentLength = 180
 const generationMaxTokens = 1250
 const groundedGenerationMaxTokens = 1650
 const geminiRouterTimeoutMs = 1800
@@ -306,107 +311,97 @@ const PERSONA = `Qraft의 브랜드 톤:
 - 질문은 사용자에게 숙제를 내는 말투가 아니라, 사용자가 자기 생각을 열어볼 수 있게 건네는 문장이어야 합니다.
 - 좋은 질문은 넓고 추상적인 말보다, 사용자가 붙잡을 수 있는 구체적인 기준 하나를 남깁니다.`
 
-const QUESTION_DESIGN_RULES = `질문 설계:
-- 정확히 3개의 질문을 생성합니다.
-- 질문은 콘텐츠 자체의 감상평을 묻지 말고, 내용에서 나온 고민할 만한 주제를 묻습니다.
-- 질문만 읽어도 무엇을 생각해야 하는지 바로 떠올라야 합니다. 멋있는 문장보다 선명한 사고의 입구를 우선합니다.
-- 질문은 답을 하나로 닫지 않되, 너무 넓은 인생 질문으로 흐르지 않습니다. 입력 주제의 핵심 명사, 선택, 긴장, 관점 차이 중 하나를 반드시 붙잡습니다.
-- "왜 중요한가요?", "어떤 의미가 있나요?", "우리는 어떤 태도를 가져야 할까요?"처럼 어디에나 붙는 질문은 피합니다.
-- 예/아니오로 끝나는 질문, 개념 정의를 묻는 질문, 단순 정보 확인 질문은 피합니다.
-- "이 영상", "이 글", "이 인터뷰"라는 표현은 질문에 쓰지 않습니다.
-- 짧은 주제만 입력된 경우 질문은 너무 일반적인 인생 질문으로 흐르지 말고, 입력 주제의 긴장, 선택, 관점 차이를 묻습니다.
-- 1번 질문은 쉽지만 가볍지 않은 첫 질문입니다. 사용자가 바로 답을 시작할 수 있어야 하며, 동시에 주제의 핵심 긴장으로 들어가는 문이어야 합니다.
-- 1번 질문은 단순 취향, 감상, 경험담을 묻지 말고, 사용자가 먼저 구분해야 할 기준, 선택해야 할 입장, 놓치기 쉬운 장면 중 하나를 묻습니다.
-- 2번 질문은 핵심 쟁점 질문입니다. 대상 안의 전제, 갈등, 대가, 기준의 충돌 중 하나를 묻습니다.
-- 3번 질문은 확장 질문입니다. 그 생각을 받아들였을 때 개인, 관계, 사회, 시간의 감각이 어떻게 달라지는지 오래 생각하게 묻습니다.
-- 1번에서 3번으로 갈수록 더 깊어지되, 세 질문 모두 쉬운 한국어 한 문장으로 씁니다.
-- 질문은 브랜드 톤에 맞는 존중형 문장으로 끝냅니다.
-- 질문의 끝맺음은 정답을 확인받는 느낌의 "~인가요?", "~한가요?"보다 사유를 열어두는 "~일까요?", "~할까요?", "~달라질까요?", "~있을까요?"를 우선합니다.
-- 반말형 질문인 "~일까?", "~할까?", "~될까?", "~있을까?"는 쓰지 않습니다.
-- "무엇인가요?", "충분히 타당한가요?"처럼 시험 문제나 평가처럼 들리는 어투는 피합니다.
-- 질문은 자연스러워야 하며, 문학적 수사를 과하게 쓰지 않습니다.`
+const QUESTION_DESIGN_RULES = `Question design rules (all questions must be written in Korean):
+- Generate exactly 3 questions.
+- Ask about thinking topics raised by the content, not impressions of the content itself.
+- Each question must immediately clarify what to think about. Prioritize a sharp thinking entry point over elegant phrasing.
+- Anchor to a core noun, choice, tension, or perspective difference — don't let questions drift into generic life questions.
+- Avoid all-purpose questions like "왜 중요한가요?", "어떤 의미가 있나요?", "우리는 어떤 태도를 가져야 할까요?".
+- No yes/no questions, definition questions, or simple fact-check questions.
+- Never use "이 영상", "이 글", "이 인터뷰" in questions.
+- For short topic input only: focus on specific tensions, choices, or perspective differences in the topic — don't drift into generic life questions.
+- Q1: Easy but not trivial. User can start answering immediately while entering the core tension. Ask about a criterion to distinguish, a position to take, or an easily missed moment — not preferences, impressions, or personal anecdotes.
+- Q2: Core issue. Ask about a presupposition, conflict, cost, or criterion clash within the subject.
+- Q3: Expansion. Ask how accepting that idea changes one's sense of self, relationships, society, or time — something to think about for a long time.
+- Q1→Q3 deepen progressively, but all three must be simple one-sentence Korean.
+- End in 존중형 (respectful) Korean appropriate to Qraft's tone.
+- Prefer open-ended endings: "~일까요?", "~할까요?", "~달라질까요?", "~있을까요?"
+- Avoid closed-feeling endings: "~인가요?", "~한가요?"
+- Never use informal endings: "~일까?", "~할까?", "~될까?", "~있을까?"
+- Avoid exam-style phrasing: "무엇인가요?", "충분히 타당한가요?"`
 
-const REFLECTION_DESIGN_RULES = `고찰 설계:
-- reflections는 각 질문에 붙는 타인의 고찰 예시입니다.
-- reflections는 정확히 3개이며, 각 항목은 줄바꿈 없는 한 문단으로 씁니다.
-- 각 항목은 보통 2~3개의 짧은 문장 또는 호흡으로 구성합니다.
-- 2문장도 허용하지만, 갑자기 끊긴 느낌이 나면 안 됩니다. 전제, 비틀기, 여운이 자연스럽게 닫힐 때만 2문장으로 끝냅니다.
-- 4문장은 거의 쓰지 말고, 생각의 층이 꼭 하나 더 필요할 때만 씁니다.
-- 길이는 지금보다 한 호흡 짧게 씁니다. 선명한 문장 하나가 느슨한 설명 두 문장보다 낫습니다.
-- 문장 중간에서 끊지 말고, JSON 문자열 안에 \\n 줄바꿈을 넣지 않습니다.
-- reflections는 질문에 대한 정답이나 해설이 아니라, 사유하는 사람이 남긴 잠정적 메모처럼 씁니다.
-- 첫 문장은 질문의 표면적 답을 반복하지 말고, 그 질문이 건드리는 전제나 긴장을 짚습니다.
-- 중간 문장에는 익숙한 관점을 한 번 비틀거나, 사용자가 놓치기 쉬운 대가, 역설, 침묵, 반대편의 합리성을 보여줍니다.
-- 되도록 특정 입장이나 결론을 단정하지 말고, 한쪽 관점이 설득력 있어 보여도 반대편의 합리성이나 남는 의문을 함께 열어둡니다.
-- 마지막 문장은 결론을 닫지 말고, 더 생각하고 싶어지는 여운이나 다음 물음으로 끝냅니다.
-- "필요가 있다", "때문이다", "해야 한다", "중요하다"처럼 결론을 닫는 종결을 피합니다.
-- "처럼 보입니다", "일지도 모릅니다", "생각해볼 수 있습니다", "묻게 됩니다", "남습니다" 같은 열린 종결을 자연스럽게 섞습니다.
-- 일부 고찰은 허를 찌르는 관점을 담되, 과장된 역설이나 냉소, 단정적인 훈계로 보이지 않게 합니다.
-- 판단을 확정하기보다 전제, 긴장, 가능성, 망설임을 드러냅니다.`
+const REFLECTION_DESIGN_RULES = `Reflection design rules (all reflections must be written in Korean):
+- Write exactly 3 reflections, one per question. Each is one paragraph with no line breaks.
+- Typically 2–3 short sentences. 2 sentences only if premise→twist→aftertaste closes naturally. 4 sentences only when truly needed.
+- Write shorter than you think. One clear sentence beats two loose ones.
+- Never break mid-sentence. No \\n inside JSON strings.
+- Write as tentative notes left by a thinking person — not answers or explanations.
+- First sentence: pinpoint the presupposition or tension the question touches, not the surface answer.
+- Middle: twist a familiar view, or show the cost, paradox, silence, or rationality of the opposing side.
+- Don't assert a specific position; keep the other side's rationality or remaining doubt open.
+- Last sentence: end with lingering resonance or a next question — never a closed conclusion.
+- Avoid closed endings: "필요가 있다", "때문이다", "해야 한다", "중요하다"
+- Use open endings naturally: "처럼 보입니다", "일지도 모릅니다", "생각해볼 수 있습니다", "묻게 됩니다", "남습니다"
+- A piercing perspective is fine; avoid exaggerated paradox, cynicism, or didactic assertion.
+- Reveal presuppositions, tensions, possibilities, and hesitation rather than confirming judgments.`
 
 const SYSTEM_PROMPT = [
   PERSONA,
-  `당신은 Qraft입니다. 입력된 링크 본문이나 주제를 바탕으로 짧은 요약, 질문 3개, 각 질문의 고찰 예시를 한국어로 생성합니다.
+  `You are Qraft. Given a link, long text, or short topic, generate a Korean summary, 3 questions, and 3 reflection examples.
 
-규칙:
-- 반드시 summary, questions, reflections 세 키를 모두 가진 JSON 객체 하나를 반환합니다.
-- questions 배열만 단독으로 반환하지 않습니다.
-- summary는 최대 6줄입니다.
-- summary는 기본적으로 5~6줄로 씁니다. 너무 짧게 끝내지 않습니다.
-- summary의 첫 3줄은 핵심 문장 3개입니다. 번호나 bullet을 붙이지 않습니다.
-- summary의 4~6줄은 1~3번 구조화 요약으로 씁니다. 입력이 매우 짧아 구조화가 어색한 경우에만 생략합니다.
-- summary에서 핵심 문장 3개 다음에 1. 쟁점이 이어질 경우, 그 사이에 반드시 빈 줄을 한 줄 넣습니다.
-- summary 형식:
-  핵심 문장 1
-  핵심 문장 2
-  핵심 문장 3
+Return exactly one JSON object and nothing else:
+{"summary":"...","questions":["q1","q2","q3"],"reflections":["r1","r2","r3"]}
+Never return a questions array alone. No markdown, no explanation.
 
+Summary format (write in Korean):
+- 5–6 lines total. First 3 are standalone core sentences (no bullets or numbers).
+- After a blank line, lines 4–6 are structured:
   1. 쟁점: 한 문장
   2. 변화: 한 문장
   3. 생각할 점: 한 문장
-- 링크/긴 텍스트는 핵심 주장과 맥락을, 짧은 주제는 바라볼 관점을 요약합니다.
-- 짧은 주제에 참고 내용이 제공된 경우, 반드시 그 검색 결과에서 확인되는 실제 정보와 맥락을 기반으로 요약과 질문을 만듭니다.
-- 단, Qraft 내부 지식베이스가 참고 내용으로 제공된 경우 그것은 검색 결과가 아니라 서비스 내부 기준입니다. 외부 검색이나 추정 대신 내부 지식베이스를 Qraft에 대한 기준으로 삼습니다.
-- Qraft에 관한 입력은 단순 기능 소개보다 서비스 가치, 사용자가 얻는 변화, 질문과 고찰의 역할을 중심으로 다룹니다.
-- 사용자 입력 원문에 있는 주제어를 잃지 말고, 참고 내용이 검색 결과일 때는 검색 결과의 잡음이나 광고성 문구를 핵심으로 삼지 않습니다.
-- 검색 결과 중 사용자 원문과 직접 관련이 낮은 결과는 사용하지 않습니다. 결과 여러 개가 서로 다르면 공통으로 확인되는 내용과 가장 직접적인 결과를 우선합니다.
-- 짧은 주제가 web_search나 검색 기반 참고 내용으로 보강된 경우, 실존 인물, 사건, 작품, 브랜드, 단체, 장소, 수치, 시기 같은 사실성 주제는 반드시 확인된 내용만 사용합니다.
-- 실존 인물이나 팀, 작품, 브랜드처럼 사실 확인이 필요한 짧은 주제는 먼저 대상을 식별하고, 소속/직업/작품명/입단·출간·출시처럼 안정적으로 확인되는 사실을 우선합니다.
-- 타율, OPS, 순위, 가격, 팔로워 수처럼 자주 바뀌는 수치나 "전 부문 선두", "최고", "확정" 같은 강한 평가는 사용자가 명시적으로 요구한 경우가 아니면 요약의 핵심으로 삼지 않습니다.
-- 변동 수치가 꼭 필요할 때도 검색 결과 간 차이가 있으면 정확한 숫자 대신 "최근 성적", "검색 시점 기준", "상위권"처럼 보수적으로 표현합니다.
-- 검색 결과로 확인되지 않은 사실은 요약에 쓰지 않습니다. 대신 확인된 범위, 불확실성, 생각해볼 쟁점을 중심으로 작성합니다.
-- 검색 기반 참고 내용이 많은 경우에도 사실을 길게 나열하지 않습니다. 입력어를 이해하는 데 필요한 확인된 사실 2~3개와 그 사실들이 만드는 긴장만 남깁니다.
-- 검색 기반 질문은 미래 예측, 추가 검색, 정답 확인을 요구하지 않습니다. 확인된 사실을 바탕으로 사용자의 관점과 판단 기준을 묻습니다.
-- web_search 도구나 검색 기반 참고 내용 없이 제공된 짧은 주제는 개념형 주제로 간주합니다. 이 경우 실존 인물, 사건, 작품 배경, 저자, 연도, 소속, 수치 같은 사실을 절대 덧붙이지 말고 입력어 자체가 품은 관점과 긴장만 다룹니다.
-- web_search 도구가 제공된 경우에는 검색 결과를 이 요청의 참고 내용으로 간주하고, 사용자 원문과 직접 관련된 상위 결과 1~3개에서 확인되는 범위만 실제 정보로 사용합니다.
-- 링크 본문이나 검색 결과가 부족하면 모르는 사실을 꾸며내지 말고, 입력된 단어에서 직접 출발한 관점 중심 요약과 질문을 만듭니다.
-- 유튜브 링크에서 영상 제목이나 채널 정보만 확보된 경우, 제목에서 드러나는 주제와 관점으로 요약과 질문을 만들되 "영상을 확인할 수 없습니다", "내용을 요약하기 어렵습니다", "일반적 맥락" 같은 한계 설명을 출력하지 않습니다.
-- 유튜브 제목이나 채널 정보만 확보된 경우, 제목에 없는 작품 배경, 악기, 제작 의도, 인물 관계, 사건을 사실처럼 추가 추정하지 않습니다.
-- 참고 내용에 없는 실존 인물의 이력, 사건, 수치, 소속, 작품명은 추가하지 않습니다.
-- URL, 출처 표기, 검색 결과 문구, "Title:", "URL:", "Markdown Content:" 같은 수집 메타데이터를 출력하지 않습니다.
+- Omit lines 4–6 only if input is too short to structure naturally.
+- Links/long text → summarize core argument and context. Short topics → summarize perspectives to consider.
+
+Content rules:
+- Use only facts in the provided content. Never fabricate real people's history, stats, affiliations, or work titles.
+- User's original keywords must not be lost.
+- When only YouTube title/channel is available: generate from the title's theme. Never write "영상을 확인할 수 없습니다" or similar disclaimers. Never add facts (instruments, intent, character relations) not in the title.
+- Don't output URLs, source metadata, or labels like "Title:", "URL:", "Markdown Content:".
+- Qraft internal knowledge base (when provided): use as internal standard, not search results. Focus on service value, user transformation, and the role of questions and reflections.
+
+Web search grounding (when web_search tool or search reference is provided):
+- Use only confirmed content from directly relevant top 1–3 results. Ignore noise, ads, and unrelated results.
+- For factual subjects: identify subject first, use only stably confirmed facts (affiliation, role, work name, release date).
+- Don't assert fast-changing figures precisely — use conservative phrasing: "최근 성적", "검색 시점 기준", "상위권".
+- Keep only 2–3 confirmed facts that create the core tension. Don't list facts at length.
+- Search-based questions ask about the user's perspective based on confirmed facts — not future predictions, further searches, or fact confirmations.
+
+Short topic without search reference:
+- Treat as conceptual. Never add real people, events, backgrounds, authors, years, affiliations, or stats.
+- Focus only on the perspectives and tensions in the input term itself.
+
 ${QUESTION_DESIGN_RULES}
 ${REFLECTION_DESIGN_RULES}
-- 실존 인물, 포지션, 기록, 소속 등 구체적 사실은 입력된 텍스트에 명시된 경우에만 사용합니다. 입력에 없는 사실은 추가하지 않습니다.
-- 짧은 주제(인물명, 키워드 등)만 입력된 경우, 그 주제를 둘러싼 관점과 질문에 집중하며 검증되지 않은 사실을 단정하지 않습니다.
-- 반드시 JSON 객체 형식으로만 반환합니다: {"summary":"요약 또는 관점 설명","questions":["질문1","질문2","질문3"],"reflections":["1번 질문 고찰","2번 질문 고찰","3번 질문 고찰"]}
-- 설명, 부연, 마크다운 없이 JSON 객체만 출력합니다.`,
+- 실존 인물, 포지션, 기록, 소속 등 구체적 사실은 입력된 텍스트에 명시된 경우에만 사용합니다. 입력에 없는 사실은 추가하지 않습니다.`,
 ]
   .filter(Boolean)
   .join("\n\n")
 
 const REGENERATE_SYSTEM_PROMPT = [
   PERSONA,
-  `당신은 Qraft입니다. 입력된 요약을 바탕으로 기존과 다른 새로운 질문 3개와 각 질문의 고찰 예시를 한국어로 생성합니다.
+  `You are Qraft. Given an existing summary, generate 3 new questions and 3 reflection examples in Korean that differ from previous questions.
 
-규칙:
+Return exactly one JSON object and nothing else:
+{"questions":["q1","q2","q3"],"reflections":["r1","r2","r3"]}
+No markdown, no explanation.
+
+Non-repetition rules:
+- Don't repeat, rephrase, or surface-vary previous questions.
+- Find a different lens: failure conditions, hidden costs, time axis, relationships, sensory changes, the other side's rationality.
+- Don't sacrifice naturalness or topic focus just to avoid repetition. Stay close to the core subject.
+
 ${QUESTION_DESIGN_RULES}
-- 표면적인 재진술에 머물지 말고, 같은 요약 안에서 다른 각도나 더 선명한 갈등을 찾아 묻습니다.
-- 이전 질문은 반복을 피하기 위한 참고일 뿐입니다. 억지로 새로워 보이려다 핵심 주제에서 멀어지지 않습니다.
-- 이전 질문과 같은 문장, 거의 같은 문장, 표현만 바꾼 질문은 만들지 않습니다.
-- 단, 반복 회피보다 새 질문의 자연스러움과 사유의 밀도를 우선합니다.
-${REFLECTION_DESIGN_RULES}
-- 반드시 JSON 객체 형식으로만 반환합니다: {"questions":["질문1","질문2","질문3"],"reflections":["1번 질문 고찰","2번 질문 고찰","3번 질문 고찰"]}
-- 설명, 부연, 마크다운 없이 JSON 객체만 출력합니다.`,
+${REFLECTION_DESIGN_RULES}`,
 ]
   .filter(Boolean)
   .join("\n\n")
@@ -879,6 +874,12 @@ function getYouTubeVideoId(source: string) {
   return ""
 }
 
+function getCanonicalYouTubeUrl(source: string) {
+  const videoId = getYouTubeVideoId(source)
+
+  return videoId ? `https://www.youtube.com/watch?v=${videoId}` : source
+}
+
 type YouTubeMetadata = {
   title?: string
   authorName?: string
@@ -930,11 +931,67 @@ async function fetchViaJina(url: string, timeoutMs = jinaReaderTimeoutMs): Promi
   })
 
   if (!response.ok) {
-    throw new Error(`Jina 요청 실패: ${response.status}`)
+    const error = new Error(`Jina 요청 실패: ${response.status}`) as Error & { status?: number }
+    error.status = response.status
+    throw error
   }
 
   const text = await response.text()
   return cleanReaderContent(text).slice(0, contentCharacterLimit)
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function getArticleReaderCandidateUrls(source: string) {
+  const candidateUrls = [source]
+
+  try {
+    const url = new URL(source)
+    const trackingParamPattern = /^(?:utm_|fbclid$|gclid$|gbraid$|wbraid$|igshid$|mc_cid$|mc_eid$)/i
+    const removableParams = Array.from(url.searchParams.keys()).filter((key) => trackingParamPattern.test(key))
+
+    url.hash = ""
+    removableParams.forEach((key) => url.searchParams.delete(key))
+
+    const cleanedUrl = url.toString()
+    if (cleanedUrl !== source) {
+      candidateUrls.push(cleanedUrl)
+    }
+  } catch {}
+
+  return Array.from(new Set(candidateUrls))
+}
+
+async function fetchUrlReaderContent(source: string) {
+  const candidateUrls = getArticleReaderCandidateUrls(source)
+  const timeoutAttempts = [jinaReaderTimeoutMs, jinaReaderRetryTimeoutMs]
+  let lastError: unknown = null
+
+  for (const candidateUrl of candidateUrls) {
+    for (const timeoutMs of timeoutAttempts) {
+      try {
+        const content = await fetchViaJina(candidateUrl, timeoutMs)
+
+        if (content.trim()) {
+          return content
+        }
+
+        lastError = new Error("Jina 빈 응답")
+      } catch (error) {
+        lastError = error
+      }
+
+      await wait(jinaReaderRetryDelayMs)
+    }
+  }
+
+  if (lastError) {
+    console.error("Qraft URL reader failed", lastError)
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Jina 요청 실패")
 }
 
 function isReaderMetadataLine(line: string) {
@@ -975,6 +1032,38 @@ function cleanReaderContent(content: string) {
     })
 
   return cleanedLines.join("\n").trim()
+}
+
+function isUsableYouTubeReaderContent(content: string) {
+  const cleanedContent = content.trim()
+  const meaningfulLineCount = cleanedContent
+    .split("\n")
+    .filter((line) => line.trim().length >= 24).length
+
+  return cleanedContent.length >= youtubeReaderMinContentLength && meaningfulLineCount >= 2
+}
+
+async function fetchYouTubeReaderContent(source: string) {
+  const candidateUrls = Array.from(new Set([source, getCanonicalYouTubeUrl(source)]))
+  let lastError: unknown = null
+
+  for (const candidateUrl of candidateUrls) {
+    try {
+      const content = await fetchViaJina(candidateUrl, youtubeReaderTimeoutMs)
+
+      if (isUsableYouTubeReaderContent(content)) {
+        return content
+      }
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  if (lastError) {
+    console.error("Qraft YouTube reader failed", lastError)
+  }
+
+  return ""
 }
 
 const FALLBACK_QUESTIONS = [
@@ -1646,6 +1735,58 @@ function getGeminiPreSummarizeModel() {
   return process.env.GEMINI_PRESUMMARIZE_MODEL?.trim() || "gemini-2.5-flash-lite"
 }
 
+function getGeminiGroundingModel() {
+  return process.env.GEMINI_GROUNDING_MODEL?.trim() || "gemini-2.0-flash"
+}
+
+async function fetchGeminiGroundedSummary(
+  source: string,
+  tokenUsage?: TokenUsageAccumulator
+): Promise<string> {
+  const apiKey = getGeminiApiKey()
+  if (!apiKey) return ""
+
+  const model = getGeminiGroundingModel()
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `"${source}"에 대해 웹 검색으로 확인되는 핵심 사실을 1500자 이내로 요약하세요. 실존 인물, 소속, 직책, 작품명, 출시일처럼 안정적으로 확인되는 사실을 중심으로 작성하세요. 자주 바뀌는 수치나 순위는 "최근 기준", "상위권" 등 보수적으로 표현하세요. 요약만 출력하세요.`,
+                },
+              ],
+            },
+          ],
+          tools: [{ google_search: {} }],
+          generationConfig: {
+            maxOutputTokens: 600,
+            temperature: 0,
+          },
+        }),
+        signal: AbortSignal.timeout(geminiGroundingTimeoutMs),
+      }
+    )
+
+    if (!response.ok) return ""
+
+    const payload: unknown = await response.json()
+    tokenUsage?.add(getGeminiTokenUsage(payload, model))
+    return getGeminiText(payload).trim()
+  } catch {
+    return ""
+  }
+}
+
 async function compressContentWithGemini(
   content: string,
   tokenUsage?: TokenUsageAccumulator
@@ -1883,11 +2024,17 @@ async function generateTopicRawWithoutWebSearch(source: string, tokenUsage?: Tok
 }
 
 function getInitialGenerationModel(sourceKind: SourceKind, forceWebSearch: boolean) {
-  if (forceWebSearch || sourceKind === "url" || sourceKind === "youtube") {
+  if (forceWebSearch) {
     return sonnetGenerationModel
   }
 
   return fastGenerationModel
+}
+
+function getGenerationMaxTokens(sourceKind: SourceKind, forceWebSearch: boolean, useGeminiGrounding: boolean) {
+  if (forceWebSearch && !useGeminiGrounding) return groundedGenerationMaxTokens
+  if (sourceKind === "url" || sourceKind === "youtube") return urlGenerationMaxTokens
+  return generationMaxTokens
 }
 
 function buildYouTubeContent(metadata: YouTubeMetadata | null, readerContent: string) {
@@ -2518,14 +2665,15 @@ export async function POST(request: Request) {
       : null
   const forceTopicWebSearch = topicGroundingDecision?.useWebSearch ?? false
   let cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, forceTopicWebSearch)
-  let factProvider: "claude_web_search" | null = null
+  let factProvider: "claude_web_search" | "gemini_web_search" | null = null
   let factGroundingStatus: "partial" | null = null
   let responseUseWebSearch = forceTopicWebSearch
   let retriedTopicWithoutWebSearch = false
+  let useGeminiGrounding = false
 
   if (sourceKind === "youtube") {
     const [readerResult, metadataResult] = await Promise.allSettled([
-      fetchViaJina(source, youtubeReaderTimeoutMs),
+      fetchYouTubeReaderContent(source),
       fetchYouTubeMetadata(source),
     ])
     const rawReaderContent = readerResult.status === "fulfilled" ? readerResult.value : ""
@@ -2533,10 +2681,10 @@ export async function POST(request: Request) {
     const readerContent = await compressContentWithGemini(rawReaderContent, tokenUsage)
 
     content = buildYouTubeContent(metadata, readerContent)
-    contentResolved = Boolean(content.trim())
+    contentResolved = isUsableYouTubeReaderContent(rawReaderContent)
   } else if (sourceKind === "url") {
     try {
-      const rawContent = await fetchViaJina(source)
+      const rawContent = await fetchUrlReaderContent(source)
       content = await compressContentWithGemini(rawContent, tokenUsage)
     } catch {
       content = source
@@ -2545,8 +2693,27 @@ export async function POST(request: Request) {
   } else if (sourceKind === "topic") {
     const qraftKnowledgeReference = getQraftKnowledgeReference(source)
 
-    content = qraftKnowledgeReference ?? source
-    contentResolved = Boolean(qraftKnowledgeReference)
+    if (qraftKnowledgeReference) {
+      content = qraftKnowledgeReference
+      contentResolved = true
+    } else if (forceTopicWebSearch) {
+      const geminiGrounding = await fetchGeminiGroundedSummary(source, tokenUsage)
+      if (geminiGrounding) {
+        content = geminiGrounding
+        contentResolved = true
+        useGeminiGrounding = true
+        factProvider = "gemini_web_search"
+        factGroundingStatus = "partial"
+      } else {
+        content = source
+        contentResolved = false
+        factProvider = "claude_web_search"
+        factGroundingStatus = "partial"
+      }
+    } else {
+      content = source
+      contentResolved = false
+    }
   } else {
     content = source
   }
@@ -2568,11 +2735,6 @@ export async function POST(request: Request) {
     return linkParseFailureResponse()
   }
 
-  if (forceTopicWebSearch) {
-    factProvider = "claude_web_search"
-    factGroundingStatus = "partial"
-  }
-
   const modelInput = buildModelInput({
     source,
     content,
@@ -2584,14 +2746,16 @@ export async function POST(request: Request) {
   let raw = ""
 
   try {
-    const generationModel = getInitialGenerationModel(sourceKind, forceTopicWebSearch)
+    const generationModel = useGeminiGrounding
+      ? fastGenerationModel
+      : getInitialGenerationModel(sourceKind, forceTopicWebSearch)
     const response = await client.messages.create({
       model: generationModel,
-      max_tokens: (forceTopicWebSearch || sourceKind === "url" || sourceKind === "youtube") ? groundedGenerationMaxTokens : generationMaxTokens,
-      temperature: forceTopicWebSearch ? 0.25 : 0.35,
+      max_tokens: getGenerationMaxTokens(sourceKind, forceTopicWebSearch, useGeminiGrounding),
+      temperature: forceTopicWebSearch && !useGeminiGrounding ? 0.25 : 0.35,
       system: getCachedSystemPrompt(SYSTEM_PROMPT),
       messages: [{ role: "user", content: modelInput }],
-      ...(forceTopicWebSearch
+      ...(forceTopicWebSearch && !useGeminiGrounding
         ? {
             tools: [
               {

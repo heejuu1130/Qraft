@@ -74,6 +74,15 @@ Value Moment: `question_generate_success`, fired after questions are successfull
 | `login` | Login succeeds, GA4-compatible event | `method` |
 | `login_success` | Login succeeds | `method` |
 | `bgm_toggle` | User toggles BGM | BGM state properties |
+| `community_view` | Community page loads | `signed_in` |
+| `community_reflection_create` | User adds a thought to a community question | `existing_reflection_count`, `local_fallback`, `reflection_length`, `signed_in` |
+| `personal_note_create` | User saves a personal thought | `existing_note_count`, `note_length`, `surface` |
+| `personal_note_delete` | User deletes one personal thought | `remaining_note_count`, `surface` |
+| `personal_note_group_delete` | User deletes all personal thoughts for a question card | `note_count`, `surface` |
+| `personal_note_share_to_community` | User shares personal thoughts to community | `note_count`, `share_mode` |
+| `personal_note_share_failure` | Sharing personal thoughts to community fails | `note_count`, `reason` |
+| `service_help_open` | User opens the service help modal | `surface` |
+| `service_help_close` | User closes the service help modal | `surface` |
 | `profile_tab_select` | User switches profile tab | `tab` |
 | `profile_history_toggle` | User expands/collapses saved history item | `expanded` |
 | `profile_history_view` | User reaches profile history | none |

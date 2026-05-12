@@ -3073,9 +3073,9 @@ export default function Hero() {
                         type="button"
                         onClick={openServiceHelp}
                         aria-label="Qraft 설명 보기"
-                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#d9ad73]/32 bg-[#f5dfbd]/[0.08] font-mono text-[11px] font-semibold leading-none text-[#efd3a2]/62 shadow-[0_8px_20px_rgba(13,8,5,0.24)] backdrop-blur-md transition-colors duration-300 hover:border-[#efd3a2]/62 hover:bg-[#f5dfbd]/[0.14] hover:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/78"
+                        className="relative h-5 w-5 shrink-0 rounded-full border border-[#d9ad73]/32 bg-[#f5dfbd]/[0.08] font-mono text-[11px] font-semibold leading-none text-[#efd3a2]/62 shadow-[0_8px_20px_rgba(13,8,5,0.24)] backdrop-blur-md transition-colors duration-300 hover:border-[#efd3a2]/62 hover:bg-[#f5dfbd]/[0.14] hover:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/78"
                       >
-                        <span className="-translate-x-[0.2px] translate-y-[0.1px] leading-none" aria-hidden="true">
+                        <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[48%] leading-none" aria-hidden="true">
                           ?
                         </span>
                       </button>

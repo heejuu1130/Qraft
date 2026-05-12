@@ -332,7 +332,7 @@ const QUESTION_DESIGN_RULES = `Question design rules (all questions must be writ
 
 const REFLECTION_DESIGN_RULES = `Reflection design rules (all reflections must be written in Korean):
 - Write exactly 3 reflections, one per question. Each is one paragraph with no line breaks.
-- Typically 2–3 short sentences. 2 sentences only if premise→twist→aftertaste closes naturally. 4 sentences only when truly needed.
+- Write 3 short sentences: one for premise, one for twist, one for aftertaste. 2 sentences are fine when twist and aftertaste merge naturally into one. Never 4 sentences.
 - Write shorter than you think. One clear sentence beats two loose ones.
 - Never break mid-sentence. No \\n inside JSON strings.
 - Write as tentative notes left by a thinking person — not answers or explanations.
@@ -369,12 +369,12 @@ Content rules:
 - Don't output URLs, source metadata, or labels like "Title:", "URL:", "Markdown Content:".
 - Qraft internal knowledge base (when provided): use as internal standard, not search results. Focus on service value, user transformation, and the role of questions and reflections.
 
-Web search grounding (when web_search tool or search reference is provided):
-- Use only confirmed content from directly relevant top 1–3 results. Ignore noise, ads, and unrelated results.
+When search reference content is provided (검색 기반 참고 내용):
+- Use only confirmed content from the reference. Ignore noise and unrelated content.
 - For factual subjects: identify subject first, use only stably confirmed facts (affiliation, role, work name, release date).
 - Don't assert fast-changing figures precisely — use conservative phrasing: "최근 성적", "검색 시점 기준", "상위권".
 - Keep only 2–3 confirmed facts that create the core tension. Don't list facts at length.
-- Search-based questions ask about the user's perspective based on confirmed facts — not future predictions, further searches, or fact confirmations.
+- Questions based on search content ask about the user's perspective — not future predictions or fact confirmations.
 
 Short topic without search reference:
 - Treat as conceptual. Never add real people, events, backgrounds, authors, years, affiliations, or stats.
@@ -382,7 +382,7 @@ Short topic without search reference:
 
 ${QUESTION_DESIGN_RULES}
 ${REFLECTION_DESIGN_RULES}
-- 실존 인물, 포지션, 기록, 소속 등 구체적 사실은 입력된 텍스트에 명시된 경우에만 사용합니다. 입력에 없는 사실은 추가하지 않습니다.`,
+`,
 ]
   .filter(Boolean)
   .join("\n\n")
@@ -2743,7 +2743,7 @@ export async function POST(request: Request) {
     content,
     sourceKind,
     resolved: contentResolved && content.trim().length > 0,
-    forceWebSearch: forceTopicWebSearch,
+    forceWebSearch: false,
   })
 
   let raw = ""

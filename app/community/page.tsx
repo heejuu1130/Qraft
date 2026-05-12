@@ -172,6 +172,30 @@ const normalizeReflection = (entry: CommunityReflectionEntry): CommunityReflecti
   text: entry.text.trim(),
 })
 
+const getAnonymousAuthorKey = (entry: CommunityReflectionEntry) => entry.authorId?.trim() || `entry:${entry.id}`
+
+const getOtherAuthorLabel = (index: number) =>
+  index >= 99 ? "타인 99+" : `타인 ${String(index + 1).padStart(2, "0")}`
+
+const getCommunityAuthorLabels = (
+  entries: CommunityReflectionEntry[],
+  isOwnEntry: (entry: CommunityReflectionEntry) => boolean
+) => {
+  const labels = new Map<string, string>()
+
+  entries.forEach((entry) => {
+    if (isOwnEntry(entry)) return
+
+    const authorKey = getAnonymousAuthorKey(entry)
+
+    if (!labels.has(authorKey)) {
+      labels.set(authorKey, getOtherAuthorLabel(labels.size))
+    }
+  })
+
+  return labels
+}
+
 const mergeCommunityThreads = (threads: CommunityThread[]) => {
   const mergedThreads = new Map<string, CommunityThread>()
 
@@ -1210,6 +1234,7 @@ export default function CommunityPage() {
               const draft = reflectionDrafts[thread.id] ?? ""
               const savingReflection = savingReflectionIds.has(thread.id)
               const threadCanDelete = canDeleteThread(sourceThread)
+              const communityAuthorLabels = getCommunityAuthorLabels(thread.reflections, isOwnReflection)
 
               return (
                 <article
@@ -1263,31 +1288,42 @@ export default function CommunityPage() {
                   {thread.reflections.length > 0 && (
                     <div className="mt-4 border-t border-[#d9ad73]/12 pt-4">
                       <div className="flex flex-col">
-                        {thread.reflections.map((entry, entryIndex) => (
-                          <article
-                            key={entry.id}
-                            className={entryIndex === 0 ? "pb-4" : "border-t border-[#d9ad73]/12 py-4"}
-                          >
-                            <div className="flex items-start gap-4">
-                              <p className="min-w-0 flex-1 whitespace-pre-line text-sm font-medium leading-[1.75] text-[#f5dfbd]/68 [overflow-wrap:anywhere] [word-break:keep-all]">
-                                {entry.text}
-                              </p>
-                              {canDeleteReflection(entry) && (
-                                <button
-                                  type="button"
-                                  onClick={() => deleteCommunityReflection(thread, entry)}
-                                  disabled={deletingReflectionIds.has(entry.id)}
-                                  aria-label={isOwnReflection(entry) ? "내 생각 삭제" : "생각 삭제"}
-                                  className="flex h-7 w-7 shrink-0 items-center justify-center text-[#d2ad7c]/42 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45"
-                                >
-                                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                    <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
-                                  </svg>
-                                </button>
-                              )}
-                            </div>
-                          </article>
-                        ))}
+                        {thread.reflections.map((entry, entryIndex) => {
+                          const authorLabel = isOwnReflection(entry)
+                            ? "작성자"
+                            : communityAuthorLabels.get(getAnonymousAuthorKey(entry)) ?? "타인 01"
+
+                          return (
+                            <article
+                              key={entry.id}
+                              className={entryIndex === 0 ? "pb-4" : "border-t border-[#d9ad73]/12 py-4"}
+                            >
+                              <div className="flex items-start gap-4">
+                                <div className="min-w-0 flex-1">
+                                  <p className="mb-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#d2ad7c]/45">
+                                    {authorLabel}
+                                  </p>
+                                  <p className="whitespace-pre-line text-sm font-medium leading-[1.75] text-[#f5dfbd]/68 [overflow-wrap:anywhere] [word-break:keep-all]">
+                                    {entry.text}
+                                  </p>
+                                </div>
+                                {canDeleteReflection(entry) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteCommunityReflection(thread, entry)}
+                                    disabled={deletingReflectionIds.has(entry.id)}
+                                    aria-label={isOwnReflection(entry) ? "내 생각 삭제" : "생각 삭제"}
+                                    className="flex h-7 w-7 shrink-0 items-center justify-center text-[#d2ad7c]/42 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45"
+                                  >
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                      <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
+                            </article>
+                          )
+                        })}
                       </div>
                     </div>
                   )}

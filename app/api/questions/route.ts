@@ -2687,8 +2687,13 @@ export async function POST(request: Request) {
       const rawContent = await fetchUrlReaderContent(source)
       content = await compressContentWithGemini(rawContent, tokenUsage)
     } catch {
-      content = source
-      contentResolved = false
+      const geminiContent = await fetchGeminiGroundedSummary(source, tokenUsage)
+      if (geminiContent) {
+        content = geminiContent
+      } else {
+        content = source
+        contentResolved = false
+      }
     }
   } else if (sourceKind === "topic") {
     const qraftKnowledgeReference = getQraftKnowledgeReference(source)
@@ -2707,8 +2712,6 @@ export async function POST(request: Request) {
       } else {
         content = source
         contentResolved = false
-        factProvider = "claude_web_search"
-        factGroundingStatus = "partial"
       }
     } else {
       content = source
@@ -2746,27 +2749,13 @@ export async function POST(request: Request) {
   let raw = ""
 
   try {
-    const generationModel = useGeminiGrounding
-      ? fastGenerationModel
-      : getInitialGenerationModel(sourceKind, forceTopicWebSearch)
+    const generationModel = fastGenerationModel
     const response = await client.messages.create({
       model: generationModel,
-      max_tokens: getGenerationMaxTokens(sourceKind, forceTopicWebSearch, useGeminiGrounding),
-      temperature: forceTopicWebSearch && !useGeminiGrounding ? 0.25 : 0.35,
+      max_tokens: getGenerationMaxTokens(sourceKind, false, useGeminiGrounding),
+      temperature: 0.35,
       system: getCachedSystemPrompt(SYSTEM_PROMPT),
       messages: [{ role: "user", content: modelInput }],
-      ...(forceTopicWebSearch && !useGeminiGrounding
-        ? {
-            tools: [
-              {
-                type: "web_search_20250305" as const,
-                name: "web_search" as const,
-                max_uses: topicWebSearchMaxUses,
-              },
-            ],
-            tool_choice: { type: "tool" as const, name: "web_search" },
-          }
-        : {}),
     })
 
     tokenUsage.add(getAnthropicTokenUsage(response, generationModel))

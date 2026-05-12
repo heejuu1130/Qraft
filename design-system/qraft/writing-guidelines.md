@@ -171,6 +171,19 @@ Examples:
 
 When an external model responds quickly, preserve a minimum refining sequence. Each staged loading sentence should remain visible long enough to be read and felt. Current Qraft baseline: at least 2.8 seconds per stage.
 
+When loading also shows sampled questions from the product memory, frame them as traces left by others rather than as tips, examples, or recommendations.
+
+Prefer:
+
+- 다른 사람이 남기고 간 질문
+- 먼저 놓인 사유의 단서
+
+Avoid:
+
+- 추천 질문
+- 예시 질문
+- 인기 질문
+
 ### Empty States
 
 Empty states should make absence feel intentional.
@@ -181,6 +194,14 @@ Examples:
 - 아직 남겨진 궤적이 없습니다.
 - 사유가 머무를 자리가 비어 있습니다.
 
+For product records, be clear before being poetic. Profile and community empty states may use direct language when it prevents confusion.
+
+Examples:
+
+- 저장한 질문이 없습니다.
+- 내가 공유한 생각이 없습니다.
+- 아직 남겨진 생각이 없습니다.
+
 ### Error States
 
 Errors should acknowledge interruption without dramatizing it.
@@ -190,6 +211,36 @@ Examples:
 - 사유의 흐름이 잠시 끊겼습니다.
 - 텍스트의 구조가 닿지 않았습니다.
 - 다시 한번 문장을 마주합니다.
+
+### Profile And Community
+
+Use `생각` for community contributions and `내 고찰` for the user's private/profile reflection surface. This distinction keeps community participation lighter while preserving the more contemplative identity of the personal archive.
+
+Prefer:
+
+- 함께 나누는 질문과 생각
+- 같은 질문 아래에 내 생각을 이어 남길 수 있습니다.
+- 질문에 대한 내 고찰만 모아보고 커뮤니티에 공유합니다.
+
+Avoid:
+
+- 댓글
+- 피드
+- 게시글 작성
+- 커뮤니티 활동을 시작해보세요
+
+### Help And Explanation
+
+Introductory help should explain Qraft in two steps, not as a feature list.
+
+Current pattern:
+
+1. 읽고 싶은 링크나 주제를 입력하세요. Qraft가 핵심을 분석해 깊이 있는 질문을 던집니다.
+2. 질문에 내 생각을 기록하고 커뮤니티에 공유해 보세요. 같은 질문 아래 쌓이는 다양한 관점을 만날 수 있습니다.
+
+Example input copy may be concrete, but should remain broad enough to signal links, raw text, and topics:
+
+- 예: 뉴스 기사 URL · 유튜브 링크 · 원문 · 양자역학이란? · 죽음에 관하여 등
 
 ## Voice Checklist
 

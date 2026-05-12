@@ -1,6 +1,7 @@
 const persistentQuestionDataPrefixes = [
   "qraft:question-history:",
   "qraft:saved-questions:",
+  "qraft:saved-question-meta:",
 ]
 
 const transientQuestionDataKeys = [

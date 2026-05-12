@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react"
 import { MeshGradient } from "@paper-design/shaders-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -9,7 +9,20 @@ import { useBgm } from "@/context/BgmContext"
 import { gtag } from "@/lib/gtag"
 import { logClientError } from "@/lib/client-error"
 import { normalizeQuestionEndingTone, normalizeQuestionListTone } from "@/lib/question-tone"
+import { SummaryText } from "@/lib/summary-display"
+import {
+  isMissingSavedQuestionColumnError,
+  normalizeReflectionVisibility,
+  readSavedQuestionMeta,
+  readPersonalNoteEntries,
+  removeSavedQuestionMeta,
+  serializePersonalNoteEntries,
+  type PersonalNoteEntry,
+  type ReflectionVisibility,
+  upsertSavedQuestionMeta,
+} from "@/lib/saved-reflections"
 import { usePerformanceMode } from "@/lib/use-performance-mode"
+import { isLocalDevAuthEnabled, isLocalDevUser } from "@/lib/local-dev-auth"
 
 const desert = {
   background: "#120b07",
@@ -25,21 +38,22 @@ const loadingMessages = [
   "이면에 숨겨진 질문을 직조하는 중입니다.",
   "이제, 당신의 사유를 마주할 시간입니다.",
 ]
+const loadingQuestionRotationMs = 8000
 
 const structureDots = [
   { x: "-112px", y: "-76px", delay: "0ms" },
   { x: "96px", y: "-88px", delay: "120ms" },
   { x: "-82px", y: "68px", delay: "240ms" },
   { x: "118px", y: "64px", delay: "360ms" },
-  { x: "-18px", y: "-118px", delay: "480ms" },
+  { x: "-18px", y: "-92px", delay: "480ms" },
   { x: "10px", y: "70px", delay: "600ms" },
   { x: "-128px", y: "6px", delay: "720ms" },
   { x: "130px", y: "-8px", delay: "840ms" },
   { x: "-72px", y: "70px", delay: "900ms" },
   { x: "-92px", y: "-12px", delay: "960ms" },
   { x: "82px", y: "18px", delay: "1080ms" },
-  { x: "74px", y: "-124px", delay: "1140ms" },
-  { x: "-46px", y: "-102px", delay: "1200ms" },
+  { x: "74px", y: "-96px", delay: "1140ms" },
+  { x: "-46px", y: "-90px", delay: "1200ms" },
   { x: "58px", y: "68px", delay: "1320ms" },
   { x: "-138px", y: "70px", delay: "1380ms" },
   { x: "-118px", y: "52px", delay: "1440ms" },
@@ -87,6 +101,64 @@ const exampleTopics = [
 ]
 const exampleTopicRows = [exampleTopics.slice(0, 5), exampleTopics.slice(5)]
 const exampleTopicDelayOrder = [0, 4, 1, 6, 3, 2, 7, 5]
+const fallbackLoadingQuestions = [
+  {
+    sourceTitle: "편집된 자아",
+    question: "당신이 다른 사람들 앞에서 보여주는 모습과 혼자 있을 때의 모습 사이에 어떤 차이가 있을까요?",
+  },
+  {
+    sourceTitle: "물리적 공간의 상실",
+    question: "공간이 사라져도 그곳의 기억과 관계는 남을 수 있다고 생각하시나요?",
+  },
+  {
+    sourceTitle: "기술과 인간성",
+    question: "기술이 편리함을 제공할수록 우리는 무엇을 더 쉽게 잊게 될까요?",
+  },
+  {
+    sourceTitle: "알고리즘과 주체성",
+    question: "나의 취향은 내가 선택한 것일까요, 아니면 반복적으로 제안받은 것일까요?",
+  },
+  {
+    sourceTitle: "디지털 도파민과 침묵",
+    question: "침묵이나 자극 없는 시간을 피하려는 순간, 실제로는 무엇을 피하고 있을까요?",
+  },
+  {
+    sourceTitle: "관계의 거리",
+    question: "가까운 관계일수록 오히려 말하지 않게 되는 감정은 어디에서 생겨날까요?",
+  },
+  {
+    sourceTitle: "기억과 상실",
+    question: "잊었다고 생각한 것이 삶의 선택을 계속 움직이고 있다면, 우리는 무엇을 기억하는 걸까요?",
+  },
+  {
+    sourceTitle: "일과 의미",
+    question: "성과가 사라진 뒤에도 남는 일의 의미는 어디에서 찾을 수 있을까요?",
+  },
+  {
+    sourceTitle: "선택과 책임",
+    question: "내가 선택했다고 믿는 결정 속에는 얼마나 많은 타인의 기대가 들어 있을까요?",
+  },
+  {
+    sourceTitle: "관계와 침묵",
+    question: "말하지 않는 것이 배려가 되는 순간과 회피가 되는 순간은 어떻게 구분될까요?",
+  },
+  {
+    sourceTitle: "소비와 정체성",
+    question: "무언가를 고르는 취향은 나를 드러내는 방식일까요, 아니면 나를 숨기는 방식일까요?",
+  },
+  {
+    sourceTitle: "시간의 감각",
+    question: "바쁘게 보낸 하루가 오히려 비어 있었다고 느껴지는 이유는 무엇일까요?",
+  },
+  {
+    sourceTitle: "불안과 통제",
+    question: "미래를 준비한다는 말은 언제부터 미래를 두려워한다는 말과 닮아갈까요?",
+  },
+  {
+    sourceTitle: "인정과 자존",
+    question: "타인의 인정이 사라진 자리에서도 나를 지탱하는 기준은 무엇일까요?",
+  },
+]
 const ownershipQuestionLines = [
   "당신은 정보를 '가진' 사람입니까,",
   "정보로 '변화'하는 사람입니까?",
@@ -211,6 +283,11 @@ function LandingDustText({
 type GenerationState = "idle" | "loading" | "ready" | "error"
 type LandingIntroPhase = "waiting" | "playing" | "settled"
 type FeedbackStatus = "idle" | "sending" | "sent" | "error"
+type SaveNotice = {
+  actionHref?: string
+  actionLabel?: string
+  message: string
+}
 
 type QuestionPayload = {
   cacheHit?: boolean
@@ -235,11 +312,13 @@ type QuestionHistory = {
 }
 
 type PendingSaveState = {
+  personalNote?: string
   source: string
   summary: string
   questions: string[]
   reflections: string[]
   questionIndex: number
+  visibility?: ReflectionVisibility
 }
 
 type RestoredResultState = Omit<PendingSaveState, "questionIndex"> & {
@@ -261,7 +340,9 @@ const tokenExhaustedNoticeDuration = 1800
 const questionHistoryStorageKey = "qraft:question-history"
 const pendingSaveStorageKey = "qraft:pending-save"
 const currentResultStorageKey = "qraft:current-result"
+const savedQuestionsProfileHref = "/profile?tab=saved"
 const feedbackRatingOptions = [1, 2, 3, 4, 5] as const
+const personalNoteMaxLength = 300
 
 const wait = (duration: number) =>
   new Promise<void>((resolve) => {
@@ -320,6 +401,11 @@ const getQuestionMemoryKey = (question: string) =>
     .replace(/[?？!！.,，。'"“”‘’()\[\]{}:;·…\s]/g, "")
     .toLowerCase()
 
+type LoadingQuestionSample = {
+  sourceTitle: string
+  question: string
+}
+
 const mergeQuestionMemory = (...questionGroups: string[][]) => {
   const seen = new Set<string>()
   const merged: string[] = []
@@ -337,6 +423,27 @@ const mergeQuestionMemory = (...questionGroups: string[][]) => {
   return merged.slice(-12)
 }
 
+const uniqueQuestionSamples = (items: LoadingQuestionSample[]) => {
+  const seen = new Set<string>()
+  const samples: LoadingQuestionSample[] = []
+
+  items.forEach((item) => {
+    const question = normalizeQuestionEndingTone(item.question)
+    const memoryKey = getQuestionMemoryKey(question)
+    const sourceTitle = item.sourceTitle.trim()
+
+    if (!question || !memoryKey || seen.has(memoryKey)) return
+
+    seen.add(memoryKey)
+    samples.push({
+      sourceTitle: sourceTitle || "공유된 질문",
+      question,
+    })
+  })
+
+  return samples
+}
+
 const isUrlLike = (source: string) => {
   try {
     const url = new URL(source)
@@ -346,7 +453,103 @@ const isUrlLike = (source: string) => {
   }
 }
 
+const sourceLooksLikeUrl = (source: string) => {
+  const trimmedSource = source.trim()
+
+  return (
+    isUrlLike(trimmedSource) ||
+    /(?:www\.|youtu\.be|youtube\.com|[a-z0-9-]+\.[a-z]{2,}(?:\/|\b))/i.test(trimmedSource)
+  )
+}
+
+const isAbstractLoadingTopicSource = (source: unknown) => {
+  if (typeof source !== "string") return false
+
+  const trimmedSource = source.trim()
+
+  return Boolean(trimmedSource) && !sourceLooksLikeUrl(trimmedSource) && Array.from(trimmedSource).length <= 60
+}
+
+const loadingQuestionOverlapStopwords = new Set([
+  "qraft",
+  "url",
+  "ai",
+  "질문",
+  "사유",
+  "생각",
+  "사람",
+  "사람들",
+  "당신",
+  "우리",
+  "무엇",
+  "어떻게",
+  "왜",
+  "때문",
+  "순간",
+  "사이",
+  "방식",
+])
+
+const getLoadingQuestionOverlapTokens = (value: string) => {
+  const tokens = value.toLowerCase().match(/[a-z0-9]+|[가-힣]+/g) ?? []
+
+  return new Set(
+    tokens
+      .map((token) => token.replace(/(으로|에서|에게|마다|처럼|부터|까지|보다|은|는|이|가|을|를|과|와|의|에|로|도|만)$/u, ""))
+      .filter((token) => token.length >= 2 && !loadingQuestionOverlapStopwords.has(token))
+  )
+}
+
+const hasLoadingQuestionTopicOverlap = (input: string, sample: LoadingQuestionSample) => {
+  if (!isAbstractLoadingTopicSource(input)) return false
+
+  const inputTokens = getLoadingQuestionOverlapTokens(input)
+  if (inputTokens.size === 0) return false
+
+  const sampleTokens = getLoadingQuestionOverlapTokens(`${sample.sourceTitle} ${sample.question}`)
+
+  return Array.from(sampleTokens).some((token) => inputTokens.has(token))
+}
+
+const toAbstractLoadingQuestionSample = (item: { source?: unknown; question?: unknown }) => {
+  const source = typeof item.source === "string" ? item.source.trim() : ""
+
+  if (!isAbstractLoadingTopicSource(source) || typeof item.question !== "string") return null
+
+  const question = item.question.trim()
+  if (!question) return null
+
+  return {
+    sourceTitle: getSourceDisplayLabel(source),
+    question,
+  } satisfies LoadingQuestionSample
+}
+
 const getSourceType = (source: string) => (isUrlLike(source) ? "url" : source.length < 100 ? "topic" : "text")
+
+const isMissingSharedQuestionSourceError = (error: unknown) => {
+  const text = JSON.stringify(error).toLowerCase()
+
+  return ["42p01", "pgrst205", "schema cache", "community_questions", "visibility", "shared_at"].some(
+    (keyword) => text.includes(keyword)
+  )
+}
+
+const getSourceDisplayLabel = (source: string) => {
+  const trimmedSource = source.trim()
+
+  if (!trimmedSource) return ""
+
+  try {
+    const url = new URL(trimmedSource)
+
+    return url.hostname.replace(/^www\./, "")
+  } catch {
+    const characters = Array.from(trimmedSource)
+
+    return characters.length > 42 ? `${characters.slice(0, 42).join("")}...` : trimmedSource
+  }
+}
 
 const getLengthBucket = (value: string) => {
   const length = Array.from(value.trim()).length
@@ -418,17 +621,6 @@ const isSectionActiveInViewport = (
 
   return rect.top < viewportTop + viewportHeight * enterAt && rect.bottom > viewportTop + viewportHeight * exitAt
 }
-const formatSummaryForDisplay = (value: string) =>
-  value
-    .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-const getSummaryDisplayLines = (value: string) =>
-  value
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-
 export default function Hero() {
   const [generationState, setGenerationState] = useState<GenerationState>("idle")
   const [loadingStep, setLoadingStep] = useState(0)
@@ -442,6 +634,11 @@ export default function Hero() {
   const [lastSource, setLastSource] = useState("")
   const [savedQuestionKeys, setSavedQuestionKeys] = useState<Set<string>>(() => new Set())
   const [savedQuestionIds, setSavedQuestionIds] = useState<Map<string, string>>(() => new Map())
+  const [savedQuestionNotes, setSavedQuestionNotes] = useState<Map<string, string>>(() => new Map())
+  const [personalNoteDrafts, setPersonalNoteDrafts] = useState<Map<string, string>>(() => new Map())
+  const [savedQuestionVisibilities, setSavedQuestionVisibilities] = useState<Map<string, ReflectionVisibility>>(() => new Map())
+  const [openPersonalNoteIndexes, setOpenPersonalNoteIndexes] = useState<Set<number>>(() => new Set())
+  const [saveNotice, setSaveNotice] = useState<SaveNotice | null>(null)
   const [saveErrorMessage, setSaveErrorMessage] = useState("")
   const [showLogin, setShowLogin] = useState(false)
   const [landingIntroPhase, setLandingIntroPhase] = useState<LandingIntroPhase>("waiting")
@@ -457,6 +654,10 @@ export default function Hero() {
   const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus>("idle")
   const [feedbackErrorMessage, setFeedbackErrorMessage] = useState("")
   const [showNewQuestionOverlay, setShowNewQuestionOverlay] = useState(false)
+  const [showServiceHelp, setShowServiceHelp] = useState(false)
+  const [loadingQuestionSamples, setLoadingQuestionSamples] =
+    useState<LoadingQuestionSample[]>(fallbackLoadingQuestions)
+  const [loadingQuestionSampleIndex, setLoadingQuestionSampleIndex] = useState(0)
   const mainContentRef = useRef<HTMLDivElement>(null)
   const landingInputRef = useRef<HTMLInputElement>(null)
   const newQuestionOverlayInputRef = useRef<HTMLInputElement>(null)
@@ -472,6 +673,7 @@ export default function Hero() {
   const questionInputFocusSentRef = useRef(false)
   const landingSectionViewSentRef = useRef<Set<string>>(new Set())
   const pendingSaveRestoredRef = useRef(false)
+  const personalNoteInputRefs = useRef<Map<number, HTMLTextAreaElement | null>>(new Map())
   const processSectionActiveRef = useRef(false)
   const hideLandingScrollCueRef = useRef(false)
   const step1TimerRef = useRef<number | undefined>(undefined)
@@ -521,7 +723,7 @@ export default function Hero() {
   }, [showNewQuestionOverlay])
 
   const supabase = useMemo(() => createClient(), [])
-  const { user, signOut } = useAuth()
+  const { user, signInLocalDev } = useAuth()
   const { bgmOn, toggleBgm } = useBgm()
   const {
     backgroundMotionMode,
@@ -602,8 +804,88 @@ export default function Hero() {
         : "blur-0"
   const backgroundTreatment = `${backgroundScaleTreatment} ${backgroundBlurTreatment}`
   const landingDisplayCopy = isMidnightInsight ? midnightInsightCopy : landingCopy
-  const displayedSummary = formatSummaryForDisplay(summary)
-  const displayedSummaryLines = getSummaryDisplayLines(displayedSummary)
+  const loadingSourceLabel = getSourceDisplayLabel(lastSource)
+  const loadingQuestionCandidates = uniqueQuestionSamples([...loadingQuestionSamples, ...fallbackLoadingQuestions])
+    .filter((sample) => !hasLoadingQuestionTopicOverlap(lastSource, sample))
+  const currentLoadingQuestion =
+    loadingQuestionCandidates[loadingQuestionSampleIndex % Math.max(loadingQuestionCandidates.length, 1)] ??
+    fallbackLoadingQuestions[0]
+
+  useEffect(() => {
+    const resetTimer = window.setTimeout(() => setLoadingQuestionSampleIndex(0), 0)
+
+    if (!isLoading || loadingQuestionCandidates.length <= 1) {
+      return () => window.clearTimeout(resetTimer)
+    }
+
+    const rotationTimer = window.setInterval(() => {
+      setLoadingQuestionSampleIndex((currentIndex) => (currentIndex + 1) % loadingQuestionCandidates.length)
+    }, loadingQuestionRotationMs)
+
+    return () => {
+      window.clearTimeout(resetTimer)
+      window.clearInterval(rotationTimer)
+    }
+  }, [isLoading, lastSource, loadingQuestionCandidates.length])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadSharedQuestionSamples = async () => {
+      const [communityQuestionsResponse, legacyQuestionsResponse] = await Promise.all([
+        supabase
+          .from("community_questions")
+          .select("source, question, updated_at")
+          .order("updated_at", { ascending: false })
+          .limit(12),
+        supabase
+          .from("saved_questions")
+          .select("source, question, shared_at")
+          .eq("visibility", "community")
+          .order("shared_at", { ascending: false, nullsFirst: false })
+          .limit(12),
+      ])
+
+      if (cancelled) return
+
+      if (
+        communityQuestionsResponse.error &&
+        !isMissingSharedQuestionSourceError(communityQuestionsResponse.error)
+      ) {
+        logClientError("hero.loading_questions.community.load", communityQuestionsResponse.error)
+      }
+
+      if (
+        legacyQuestionsResponse.error &&
+        !isMissingSavedQuestionColumnError(legacyQuestionsResponse.error) &&
+        !isMissingSharedQuestionSourceError(legacyQuestionsResponse.error)
+      ) {
+        logClientError("hero.loading_questions.legacy.load", legacyQuestionsResponse.error)
+      }
+
+      const communityQuestions =
+        communityQuestionsResponse.error
+          ? []
+          : (communityQuestionsResponse.data ?? [])
+              .map(toAbstractLoadingQuestionSample)
+              .filter((item): item is LoadingQuestionSample => item !== null)
+      const legacyQuestions =
+        legacyQuestionsResponse.error
+          ? []
+          : (legacyQuestionsResponse.data ?? [])
+              .map(toAbstractLoadingQuestionSample)
+              .filter((item): item is LoadingQuestionSample => item !== null)
+      const nextSamples = uniqueQuestionSamples([...communityQuestions, ...legacyQuestions, ...fallbackLoadingQuestions])
+
+      setLoadingQuestionSamples(nextSamples.slice(0, 8))
+    }
+
+    loadSharedQuestionSamples()
+
+    return () => {
+      cancelled = true
+    }
+  }, [supabase])
 
   const getLandingElapsedMs = () =>
     landingStartedAtRef.current === null
@@ -612,6 +894,78 @@ export default function Hero() {
 
   const getExperienceSurface = () =>
     isReady ? "result" : isLoading ? "loading" : generationState === "error" ? "error" : "landing"
+
+  const getCurrentQuestionKey = (question: string) =>
+    getQuestionKey(lastSource, normalizeQuestionEndingTone(question))
+
+  const getPersonalNote = (question: string) =>
+    savedQuestionNotes.get(getCurrentQuestionKey(question)) ?? ""
+
+  const getPersonalNoteEntries = (question: string) =>
+    readPersonalNoteEntries(getPersonalNote(question))
+
+  const getPersonalNoteDraft = (question: string) => {
+    const questionKey = getCurrentQuestionKey(question)
+
+    return personalNoteDrafts.get(questionKey) ?? ""
+  }
+
+  const createPersonalNoteEntry = (text: string): PersonalNoteEntry => {
+    const now = new Date().toISOString()
+
+    return {
+      id: crypto.randomUUID(),
+      text,
+      createdAt: now,
+      updatedAt: now,
+    }
+  }
+
+  const rememberSavedQuestionLocally = useCallback(
+    ({
+      id,
+      note,
+      question,
+      questionIndex,
+      savedAt,
+      source,
+      summary,
+      visibility,
+    }: {
+      id: string
+      note: string
+      question: string
+      questionIndex: number
+      savedAt?: string
+      source: string
+      summary: string
+      visibility: ReflectionVisibility
+    }) => {
+      const normalizedQuestion = normalizeQuestionEndingTone(question)
+      const questionKey = getQuestionKey(source, normalizedQuestion)
+      const now = new Date().toISOString()
+
+      upsertSavedQuestionMeta(user?.id, {
+        id,
+        source,
+        summary,
+        question: normalizedQuestion,
+        questionIndex,
+        reflection: reflections[questionIndex - 1] ?? "",
+        personalNote: note,
+        visibility,
+        savedAt: savedAt ?? now,
+        updatedAt: now,
+        sharedAt: visibility === "community" ? now : null,
+      })
+
+      setSavedQuestionNotes((currentNotes) => new Map(currentNotes).set(questionKey, note))
+      setSavedQuestionVisibilities((currentVisibilities) =>
+        new Map(currentVisibilities).set(questionKey, visibility)
+      )
+    },
+    [reflections, user?.id]
+  )
 
   const trackQuestionInputFocus = () => {
     if (questionInputFocusSentRef.current) return
@@ -627,6 +981,16 @@ export default function Hero() {
     setFeedbackOpen(false)
     setShowLogin(true)
     gtag.loginPromptView({ context })
+  }
+
+  const openServiceHelp = () => {
+    gtag.serviceHelpOpen({ surface: getExperienceSurface() })
+    setShowServiceHelp(true)
+  }
+
+  const closeServiceHelp = () => {
+    gtag.serviceHelpClose({ surface: getExperienceSurface() })
+    setShowServiceHelp(false)
   }
 
   const handleBgmToggle = () => {
@@ -1041,23 +1405,60 @@ export default function Hero() {
     let cancelled = false
 
     const loadSavedQuestionKeys = async () => {
-      if (user) {
-        const { data, error } = await supabase
-          .from("saved_questions")
-          .select("id, source, question")
+      if (user && isLocalDevUser(user)) {
+        const questionIds = new Map<string, string>()
+        const questionNotes = new Map<string, string>()
+        const questionVisibilities = new Map<string, ReflectionVisibility>()
+
+        Object.values(readSavedQuestionMeta(user.id)).forEach((item) => {
+          const questionKey = getQuestionKey(item.source, normalizeQuestionEndingTone(item.question))
+
+          questionIds.set(questionKey, item.id)
+          questionNotes.set(questionKey, item.personalNote)
+          questionVisibilities.set(questionKey, item.visibility)
+        })
 
         if (cancelled) return
 
-        if (error) {
-          logClientError("hero.saved_questions.load", error)
+        setSavedQuestionKeys(new Set(questionIds.keys()))
+        setSavedQuestionIds(questionIds)
+        setSavedQuestionNotes(questionNotes)
+        setPersonalNoteDrafts(new Map())
+        setSavedQuestionVisibilities(questionVisibilities)
+        setSaveErrorMessage("")
+        return
+      }
+
+      if (user) {
+        let savedQuestionsResponse = await supabase
+          .from("saved_questions")
+          .select("id, source, question, personal_note, visibility")
+
+        if (savedQuestionsResponse.error && isMissingSavedQuestionColumnError(savedQuestionsResponse.error)) {
+          savedQuestionsResponse = await supabase
+            .from("saved_questions")
+            .select("id, source, question")
+        }
+
+        if (cancelled) return
+
+        if (savedQuestionsResponse.error) {
+          logClientError("hero.saved_questions.load", savedQuestionsResponse.error)
           setSavedQuestionKeys(new Set())
+          setSavedQuestionIds(new Map())
+          setSavedQuestionNotes(new Map())
+          setPersonalNoteDrafts(new Map())
+          setSavedQuestionVisibilities(new Map())
           setSaveErrorMessage("저장한 질문 상태를 불러오지 못했습니다.")
           return
         }
 
         const questionIds = new Map<string, string>()
+        const questionNotes = new Map<string, string>()
+        const questionVisibilities = new Map<string, ReflectionVisibility>()
+        const localMeta = readSavedQuestionMeta(user.id)
 
-        ;(data ?? [])
+        ;(savedQuestionsResponse.data ?? [])
           .filter(
             (item) =>
               typeof item.id === "string" &&
@@ -1065,11 +1466,25 @@ export default function Hero() {
               typeof item.question === "string"
           )
           .forEach((item) => {
-            questionIds.set(getQuestionKey(item.source, normalizeQuestionEndingTone(item.question)), item.id)
+            const questionKey = getQuestionKey(item.source, normalizeQuestionEndingTone(item.question))
+            const localItem = localMeta[item.id]
+
+            questionIds.set(questionKey, item.id)
+            questionNotes.set(
+              questionKey,
+              typeof item.personal_note === "string" ? item.personal_note : localItem?.personalNote ?? ""
+            )
+            questionVisibilities.set(
+              questionKey,
+              normalizeReflectionVisibility(item.visibility ?? localItem?.visibility)
+            )
           })
 
         setSavedQuestionKeys(new Set(questionIds.keys()))
         setSavedQuestionIds(questionIds)
+        setSavedQuestionNotes(questionNotes)
+        setPersonalNoteDrafts(new Map())
+        setSavedQuestionVisibilities(questionVisibilities)
         setSaveErrorMessage("")
         return
       }
@@ -1078,6 +1493,9 @@ export default function Hero() {
       if (!cancelled) {
         setSavedQuestionKeys(new Set())
         setSavedQuestionIds(new Map())
+        setSavedQuestionNotes(new Map())
+        setPersonalNoteDrafts(new Map())
+        setSavedQuestionVisibilities(new Map())
         setSaveErrorMessage("")
       }
     }
@@ -1126,6 +1544,8 @@ export default function Hero() {
     setReflections([])
     setErrorMessage("")
     setSaveErrorMessage("")
+    setSaveNotice(null)
+    setOpenPersonalNoteIndexes(new Set())
     setOpenReflectionIndexes(new Set())
     setLastSource(source)
     setGenerationState("loading")
@@ -1215,6 +1635,8 @@ export default function Hero() {
     setReflections([])
     setErrorMessage("")
     setSaveErrorMessage("")
+    setSaveNotice(null)
+    setOpenPersonalNoteIndexes(new Set())
     setOpenReflectionIndexes(new Set())
     setGenerationState("loading")
 
@@ -1265,8 +1687,8 @@ export default function Hero() {
     }
   }
 
-  const saveHistory = async (source: string, payload: QuestionPayload) => {
-    if (user) {
+  const saveHistory = useCallback(async (source: string, payload: QuestionPayload) => {
+    if (user && !isLocalDevUser(user)) {
       const { error } = await supabase.from("question_history").insert({
         user_id: user.id,
         source,
@@ -1305,9 +1727,9 @@ export default function Hero() {
 
     window.localStorage.setItem(
       questionHistoryScopedKey,
-      JSON.stringify([historyItem, ...history].slice(0, 50))
-    )
-  }
+        JSON.stringify([historyItem, ...history].slice(0, 50))
+      )
+  }, [questionHistoryScopedKey, supabase, user])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1478,31 +1900,141 @@ export default function Hero() {
   const saveQuestion = async (
     question: string,
     questionIndex: number,
-    overrideState?: Pick<PendingSaveState, "source" | "summary">
+    overrideState?: Pick<PendingSaveState, "source" | "summary">,
+    options?: {
+      keepSaved?: boolean
+      note?: string
+      visibility?: ReflectionVisibility
+    }
   ) => {
     const questionToSave = normalizeQuestionEndingTone(question)
     const sourceToSave = overrideState?.source ?? lastSource
     const summaryToSave = overrideState?.summary ?? summary
     const questionKey = getQuestionKey(sourceToSave, questionToSave)
+    const noteToSave = (options?.note ?? savedQuestionNotes.get(questionKey) ?? "").trim()
+    const visibilityToSave = options?.visibility ?? savedQuestionVisibilities.get(questionKey) ?? "private"
     gtag.questionSaveIntent({ signed_in: Boolean(user), question_index: questionIndex })
 
     if (!user) {
       window.sessionStorage.setItem(
         pendingSaveStorageKey,
         JSON.stringify({
+          personalNote: noteToSave,
           source: lastSource,
           summary,
           questions,
           reflections,
           questionIndex,
+          visibility: visibilityToSave,
         } satisfies PendingSaveState)
       )
       openLoginPrompt("save_question")
-      return
+      return false
+    }
+
+    if (isLocalDevUser(user)) {
+      const savedQuestionId = savedQuestionIds.get(questionKey) ?? crypto.randomUUID()
+
+      if (savedQuestionKeys.has(questionKey) && !options?.keepSaved) {
+        setSaveErrorMessage("")
+        gtag.questionUnsave({ question_index: questionIndex })
+        setSavedQuestionKeys((currentKeys) => {
+          const nextKeys = new Set(currentKeys)
+          nextKeys.delete(questionKey)
+          return nextKeys
+        })
+        setSavedQuestionIds((currentIds) => {
+          const nextIds = new Map(currentIds)
+          nextIds.delete(questionKey)
+          return nextIds
+        })
+        setSavedQuestionNotes((currentNotes) => {
+          const nextNotes = new Map(currentNotes)
+          nextNotes.delete(questionKey)
+          return nextNotes
+        })
+        setPersonalNoteDrafts((currentDrafts) => {
+          const nextDrafts = new Map(currentDrafts)
+          nextDrafts.delete(questionKey)
+          return nextDrafts
+        })
+        setSavedQuestionVisibilities((currentVisibilities) => {
+          const nextVisibilities = new Map(currentVisibilities)
+          nextVisibilities.delete(questionKey)
+          return nextVisibilities
+        })
+        removeSavedQuestionMeta(user.id, savedQuestionId)
+        return true
+      }
+
+      setSaveErrorMessage("")
+      if (!savedQuestionKeys.has(questionKey)) {
+        gtag.questionSave({ question_index: questionIndex })
+      }
+      setSavedQuestionKeys((currentKeys) => new Set(currentKeys).add(questionKey))
+      setSavedQuestionIds((currentIds) => new Map(currentIds).set(questionKey, savedQuestionId))
+      setSavedQuestionNotes((currentNotes) => new Map(currentNotes).set(questionKey, noteToSave))
+      setSavedQuestionVisibilities((currentVisibilities) =>
+        new Map(currentVisibilities).set(questionKey, visibilityToSave)
+      )
+      rememberSavedQuestionLocally({
+        id: savedQuestionId,
+        note: noteToSave,
+        question: questionToSave,
+        questionIndex,
+        source: sourceToSave,
+        summary: summaryToSave,
+        visibility: visibilityToSave,
+      })
+      setSaveNotice({
+        actionHref: visibilityToSave === "community" ? "/community" : savedQuestionsProfileHref,
+        actionLabel: visibilityToSave === "community" ? "커뮤니티 보기" : "저장 목록 보기",
+        message: visibilityToSave === "community" ? "저장하고 커뮤니티에 공유했습니다." : "저장했습니다.",
+      })
+      return true
     }
 
     if (savedQuestionKeys.has(questionKey)) {
       const savedQuestionId = savedQuestionIds.get(questionKey)
+
+      if (options?.keepSaved) {
+        if (savedQuestionId) {
+          const { error } = await supabase
+            .from("saved_questions")
+            .update({
+              personal_note: noteToSave,
+              reflection: reflections[questionIndex - 1] ?? null,
+              shared_at: visibilityToSave === "community" ? new Date().toISOString() : null,
+              updated_at: new Date().toISOString(),
+              visibility: visibilityToSave,
+            })
+            .eq("id", savedQuestionId)
+
+          if (error && !isMissingSavedQuestionColumnError(error)) {
+            logClientError("hero.question.update", error)
+            setSaveErrorMessage("저장 상태를 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+            return false
+          }
+        }
+
+        rememberSavedQuestionLocally({
+          id: savedQuestionId ?? questionKey,
+          note: noteToSave,
+          question: questionToSave,
+          questionIndex,
+          source: sourceToSave,
+          summary: summaryToSave,
+          visibility: visibilityToSave,
+        })
+        setSaveErrorMessage("")
+        setSaveNotice({
+          actionHref: visibilityToSave === "community" ? "/community" : savedQuestionsProfileHref,
+          actionLabel: visibilityToSave === "community" ? "커뮤니티 보기" : "저장 목록 보기",
+          message: visibilityToSave === "community" ? "커뮤니티에 공유했습니다." : "내 고찰을 저장했습니다.",
+        })
+        return true
+      }
+
       const deleteQuery = supabase.from("saved_questions").delete()
       const { error } = savedQuestionId
         ? await deleteQuery.eq("id", savedQuestionId)
@@ -1511,7 +2043,7 @@ export default function Hero() {
       if (error) {
         logClientError("hero.question.unsave", error)
         setSaveErrorMessage("저장 상태를 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.")
-        return
+        return false
       }
 
       setSaveErrorMessage("")
@@ -1526,7 +2058,25 @@ export default function Hero() {
         nextIds.delete(questionKey)
         return nextIds
       })
-      return
+      setSavedQuestionNotes((currentNotes) => {
+        const nextNotes = new Map(currentNotes)
+        nextNotes.delete(questionKey)
+        return nextNotes
+      })
+      setPersonalNoteDrafts((currentDrafts) => {
+        const nextDrafts = new Map(currentDrafts)
+        nextDrafts.delete(questionKey)
+        return nextDrafts
+      })
+      setSavedQuestionVisibilities((currentVisibilities) => {
+        const nextVisibilities = new Map(currentVisibilities)
+        nextVisibilities.delete(questionKey)
+        return nextVisibilities
+      })
+      if (savedQuestionId) {
+        removeSavedQuestionMeta(user.id, savedQuestionId)
+      }
+      return true
     }
 
     {
@@ -1541,7 +2091,7 @@ export default function Hero() {
       if (error) {
         logClientError("hero.question.save", error)
         setSaveErrorMessage("질문을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.")
-        return
+        return false
       }
 
       setSaveErrorMessage("")
@@ -1550,7 +2100,93 @@ export default function Hero() {
       if (data && typeof data.id === "string") {
         setSavedQuestionIds((currentIds) => new Map(currentIds).set(questionKey, data.id))
       }
-      return
+      const savedQuestionId = data && typeof data.id === "string" ? data.id : questionKey
+
+      if (data && typeof data.id === "string") {
+        const { error: updateError } = await supabase
+          .from("saved_questions")
+          .update({
+            personal_note: noteToSave,
+            reflection: reflections[questionIndex - 1] ?? null,
+            shared_at: visibilityToSave === "community" ? new Date().toISOString() : null,
+            updated_at: new Date().toISOString(),
+            visibility: visibilityToSave,
+          })
+          .eq("id", data.id)
+
+        if (updateError && !isMissingSavedQuestionColumnError(updateError)) {
+          logClientError("hero.question.save_details", updateError)
+        }
+      }
+
+      rememberSavedQuestionLocally({
+        id: savedQuestionId,
+        note: noteToSave,
+        question: questionToSave,
+        questionIndex,
+        source: sourceToSave,
+        summary: summaryToSave,
+        visibility: visibilityToSave,
+      })
+      setSaveNotice({
+        actionHref: visibilityToSave === "community" ? "/community" : savedQuestionsProfileHref,
+        actionLabel: visibilityToSave === "community" ? "커뮤니티 보기" : "저장 목록 보기",
+        message: visibilityToSave === "community" ? "저장하고 커뮤니티에 공유했습니다." : "저장했습니다.",
+      })
+      return true
+    }
+  }
+
+  const updatePersonalNote = (question: string, note: string) => {
+    const questionKey = getCurrentQuestionKey(question)
+
+    setPersonalNoteDrafts((currentDrafts) => new Map(currentDrafts).set(questionKey, note.slice(0, personalNoteMaxLength)))
+  }
+
+  const savePersonalNote = async (question: string, questionIndex: number) => {
+    const questionKey = getCurrentQuestionKey(question)
+    const draft = (personalNoteDrafts.get(questionKey) ?? "").trim()
+
+    if (!draft) return
+
+    const entries = getPersonalNoteEntries(question)
+    const nextEntries = [...entries, createPersonalNoteEntry(draft)]
+
+    const saved = await saveQuestion(question, questionIndex, undefined, {
+      keepSaved: savedQuestionKeys.has(questionKey),
+      note: serializePersonalNoteEntries(nextEntries),
+      visibility: savedQuestionVisibilities.get(questionKey) ?? "private",
+    })
+
+    if (saved) {
+      gtag.personalNoteCreate({
+        existing_note_count: entries.length,
+        note_length: draft.length,
+        question_index: questionIndex,
+        surface: "result",
+      })
+    }
+
+    setPersonalNoteDrafts((currentDrafts) => new Map(currentDrafts).set(questionKey, ""))
+  }
+
+  const deletePersonalNote = async (question: string, questionIndex: number, entryId: string) => {
+    const questionKey = getCurrentQuestionKey(question)
+    const nextEntries = getPersonalNoteEntries(question).filter((entry) => entry.id !== entryId)
+
+    setPersonalNoteDrafts((currentDrafts) => new Map(currentDrafts).set(questionKey, ""))
+    const saved = await saveQuestion(question, questionIndex, undefined, {
+      keepSaved: true,
+      note: serializePersonalNoteEntries(nextEntries),
+      visibility: savedQuestionVisibilities.get(questionKey) ?? "private",
+    })
+
+    if (saved) {
+      gtag.personalNoteDelete({
+        question_index: questionIndex,
+        remaining_note_count: nextEntries.length,
+        surface: "result",
+      })
     }
   }
 
@@ -1603,6 +2239,48 @@ export default function Hero() {
         )
         void (async () => {
           const questionKey = getQuestionKey(pendingSave.source, question)
+
+          if (isLocalDevUser(user)) {
+            const visibility = normalizeReflectionVisibility(pendingSave.visibility)
+            const personalNote = typeof pendingSave.personalNote === "string" ? pendingSave.personalNote.trim() : ""
+            const savedQuestionId = crypto.randomUUID()
+
+            await saveHistory(pendingSave.source, {
+              summary: pendingSave.summary,
+              questions: pendingSaveQuestions,
+              reflections: pendingSave.reflections,
+            })
+            setSaveErrorMessage("")
+            setSavedQuestionKeys((currentKeys) => new Set(currentKeys).add(questionKey))
+            setSavedQuestionIds((currentIds) => new Map(currentIds).set(questionKey, savedQuestionId))
+            setSavedQuestionNotes((currentNotes) => new Map(currentNotes).set(questionKey, personalNote))
+            setSavedQuestionVisibilities((currentVisibilities) =>
+              new Map(currentVisibilities).set(questionKey, visibility)
+            )
+            rememberSavedQuestionLocally({
+              id: savedQuestionId,
+              note: personalNote,
+              question,
+              questionIndex: pendingSave.questionIndex,
+              source: pendingSave.source,
+              summary: pendingSave.summary,
+              visibility,
+            })
+            if (personalNote) {
+              gtag.personalNoteCreate({
+                note_length: personalNote.length,
+                question_index: pendingSave.questionIndex,
+                surface: "pending_login",
+              })
+            }
+            setSaveNotice({
+              actionHref: visibility === "community" ? "/community" : savedQuestionsProfileHref,
+              actionLabel: visibility === "community" ? "커뮤니티 보기" : "저장 목록 보기",
+              message: visibility === "community" ? "저장하고 커뮤니티에 공유했습니다." : "저장했습니다.",
+            })
+            return
+          }
+
           const [historyResponse, savedQuestionResponse] = await Promise.all([
             supabase.from("question_history").insert({
               user_id: user.id,
@@ -1633,9 +2311,49 @@ export default function Hero() {
           setSaveErrorMessage("")
           setSavedQuestionKeys((currentKeys) => new Set(currentKeys).add(questionKey))
           if (savedQuestionResponse.data && typeof savedQuestionResponse.data.id === "string") {
+            const visibility = normalizeReflectionVisibility(pendingSave.visibility)
+            const personalNote = typeof pendingSave.personalNote === "string" ? pendingSave.personalNote.trim() : ""
+            const savedQuestionId = savedQuestionResponse.data.id
+
             setSavedQuestionIds((currentIds) =>
-              new Map(currentIds).set(questionKey, savedQuestionResponse.data.id)
+              new Map(currentIds).set(questionKey, savedQuestionId)
             )
+            setSavedQuestionNotes((currentNotes) => new Map(currentNotes).set(questionKey, personalNote))
+            setSavedQuestionVisibilities((currentVisibilities) =>
+              new Map(currentVisibilities).set(questionKey, visibility)
+            )
+
+            const { error: updateError } = await supabase
+              .from("saved_questions")
+              .update({
+                personal_note: personalNote,
+                reflection: pendingSave.reflections[pendingSave.questionIndex - 1] ?? null,
+                shared_at: visibility === "community" ? new Date().toISOString() : null,
+                updated_at: new Date().toISOString(),
+                visibility,
+              })
+              .eq("id", savedQuestionId)
+
+            if (updateError && !isMissingSavedQuestionColumnError(updateError)) {
+              logClientError("hero.pending_save.details", updateError)
+            }
+
+            rememberSavedQuestionLocally({
+              id: savedQuestionId,
+              note: personalNote,
+              question,
+              questionIndex: pendingSave.questionIndex,
+              source: pendingSave.source,
+              summary: pendingSave.summary,
+              visibility,
+            })
+            if (personalNote) {
+              gtag.personalNoteCreate({
+                note_length: personalNote.length,
+                question_index: pendingSave.questionIndex,
+                surface: "pending_login",
+              })
+            }
           }
         })()
       }, 0)
@@ -1646,7 +2364,7 @@ export default function Hero() {
     return () => {
       if (timeout) window.clearTimeout(timeout)
     }
-  }, [supabase, user])
+  }, [rememberSavedQuestionLocally, saveHistory, supabase, user])
 
   const toggleReflection = (index: number) => {
     const expanded = !openReflectionIndexes.has(index)
@@ -1669,6 +2387,20 @@ export default function Hero() {
     })
   }
 
+  const togglePersonalNote = (index: number) => {
+    setOpenPersonalNoteIndexes((currentIndexes) => {
+      const nextIndexes = new Set(currentIndexes)
+
+      if (nextIndexes.has(index)) {
+        nextIndexes.delete(index)
+      } else {
+        nextIndexes.add(index)
+      }
+
+      return nextIndexes
+    })
+  }
+
   return (
     <div
       className={
@@ -1678,39 +2410,30 @@ export default function Hero() {
         } ${pauseCssMotion ? "qraft-motion-rested" : ""}`
       }
     >
-      {/* 우측 상단 로그인/로그아웃 */}
+      {/* 우측 상단 계정/커뮤니티 */}
       <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
         {user ? (
-          <>
-            <button
-              type="button"
-              onClick={signOut}
-              className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#f5dfbd]/42 transition-colors duration-500 hover:text-[#f5dfbd]/80 focus:outline-none"
-            >
-              Logout
-            </button>
-            <Link
-              href="/profile"
-              className="flex h-10 max-w-48 items-center gap-2 rounded-full border border-[#d9ad73]/25 bg-[#f5dfbd]/[0.08] px-2.5 pr-3 text-left text-[#f5dfbd]/70 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-500 hover:border-[#d9ad73]/55 hover:text-[#f5dfbd]/95 focus:outline-none"
-            >
-              <span className="flex h-[29px] w-[29px] shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#d9ad73]/35 bg-[#f5dfbd]/10 font-mono text-[11px] font-semibold uppercase text-[#f5dfbd]/75">
-                {profileImageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={profileImageUrl}
-                    alt=""
-                    className="h-full w-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  profileInitial
-                )}
-              </span>
-              <span className="min-w-0 truncate font-mono text-xs font-medium uppercase tracking-[0.1em]">
-                {profileName}
-              </span>
-            </Link>
-          </>
+          <Link
+            href="/profile"
+            className="flex h-10 max-w-48 items-center gap-2 rounded-full border border-[#d9ad73]/25 bg-[#f5dfbd]/[0.08] px-2.5 pr-3 text-left text-[#f5dfbd]/70 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-500 hover:border-[#d9ad73]/55 hover:text-[#f5dfbd]/95 focus:outline-none"
+          >
+            <span className="flex h-[29px] w-[29px] shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#d9ad73]/35 bg-[#f5dfbd]/10 font-mono text-[11px] font-semibold uppercase text-[#f5dfbd]/75">
+              {profileImageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={profileImageUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                profileInitial
+              )}
+            </span>
+            <span className="min-w-0 truncate font-mono text-xs font-medium uppercase tracking-[0.1em]">
+              {profileName}
+            </span>
+          </Link>
         ) : (
           <button
             type="button"
@@ -1722,6 +2445,12 @@ export default function Hero() {
             Login
           </button>
         )}
+        <Link
+          href="/community"
+          className="inline-flex h-10 items-center border border-[#d9ad73]/25 bg-[#f5dfbd]/[0.08] px-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#f5dfbd]/56 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-500 hover:border-[#d9ad73]/55 hover:text-[#f5dfbd]/90 focus:outline-none"
+        >
+          Community
+        </Link>
       </div>
 
       {/* 로그인 모달 */}
@@ -1767,6 +2496,19 @@ export default function Hero() {
                 </svg>
                 Continue with Kakao
               </Link>
+
+              {isLocalDevAuthEnabled() && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    signInLocalDev()
+                    setShowLogin(false)
+                  }}
+                  className="flex h-11 w-full items-center justify-center gap-3 border border-[#d9ad73]/24 bg-[#f5dfbd]/[0.06] px-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#f5dfbd]/58 transition-colors duration-300 hover:border-[#d9ad73]/45 hover:bg-[#f5dfbd]/[0.1] focus:outline-none"
+                >
+                  Local preview login
+                </button>
+              )}
             </div>
 
             <button
@@ -1776,6 +2518,77 @@ export default function Hero() {
             >
               닫기
             </button>
+          </div>
+        </div>
+      )}
+
+      {showServiceHelp && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-5"
+          onClick={closeServiceHelp}
+        >
+          <div className="absolute inset-0 bg-[#080403]/62 backdrop-blur-sm" />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="qraft-service-help-title"
+            className="relative w-full max-w-md border border-[#d9ad73]/26 bg-[#120b07]/92 p-6 text-left text-[#f5dfbd] shadow-[0_24px_90px_rgba(8,4,3,0.72)] backdrop-blur-xl sm:p-7"
+            style={{
+              animation: "qraft-reveal 320ms ease-out forwards",
+              fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-5 border-b border-[#d9ad73]/14 pb-5">
+              <div>
+                <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em] text-[#d2ad7c]/50">
+                  What is?
+                </p>
+                <h2
+                  id="qraft-service-help-title"
+                  className="mt-3 text-xl font-medium leading-[1.35] text-[#f5dfbd]/90 [word-break:keep-all]"
+                >
+                  Qraft는 질문을 만들어주는
+                  <br />
+                  <span className="whitespace-nowrap">사유 도구입니다.</span>
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={closeServiceHelp}
+                aria-label="설명 닫기"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#d9ad73]/18 bg-[#f5dfbd]/[0.05] text-[#f5dfbd]/45 transition-colors duration-300 hover:border-[#d9ad73]/36 hover:text-[#f5dfbd]/80 focus:outline-none focus-visible:border-[#efd3a2]/65"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M3.5 3.5L10.5 10.5M10.5 3.5L3.5 10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-4">
+              <section className="border-l border-[#d9ad73]/24 pl-4">
+                <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.16em] text-[#d2ad7c]/52">
+                  1단계
+                </p>
+                <p className="mt-2 text-sm font-medium leading-[1.75] text-[#f5dfbd]/62 [word-break:keep-all]">
+                  읽고 싶은 링크나 주제를 입력하세요. Qraft가 핵심을 분석해 깊이 있는 질문을 던집니다.
+                </p>
+              </section>
+              <section className="border-l border-[#d9ad73]/24 pl-4">
+                <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.16em] text-[#d2ad7c]/52">
+                  2단계
+                </p>
+                <p className="mt-2 text-sm font-medium leading-[1.75] text-[#f5dfbd]/62 [word-break:keep-all]">
+                  질문에 내 생각을 기록하고 커뮤니티에 공유해 보세요. 같은 질문 아래 쌓이는 다양한 관점을 만날 수 있습니다.
+                </p>
+              </section>
+            </div>
+
+            <div className="mt-6 border-t border-[#d9ad73]/12 pt-5">
+              <p className="text-xs font-medium leading-[1.7] text-[#f5dfbd]/42 [word-break:keep-all]">
+                예: 뉴스 기사 URL · 유튜브 링크 · 원문 · 양자역학이란? · 죽음에 관하여 등
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -2177,12 +2990,24 @@ export default function Hero() {
                   style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
                 >
                   <div className="flex flex-1 flex-col gap-2 text-left">
-                    <label htmlFor="qraft-source-input" className="relative font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em]">
-                      <span className="text-[#f5dfbd]/70 mix-blend-difference">Link / Topic</span>
-                      <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2]/80 mix-blend-overlay">
-                        Link / Topic
-                      </span>
-                    </label>
+                    <div className="flex items-center gap-2">
+                      <label htmlFor="qraft-source-input" className="relative font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em]">
+                        <span className="text-[#f5dfbd]/70 mix-blend-difference">Link / Topic</span>
+                        <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2]/80 mix-blend-overlay">
+                          Link / Topic
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={openServiceHelp}
+                        aria-label="Qraft 설명 보기"
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#d9ad73]/32 bg-[#f5dfbd]/[0.08] font-mono text-[11px] font-semibold leading-none text-[#efd3a2]/62 shadow-[0_8px_20px_rgba(13,8,5,0.24)] backdrop-blur-md transition-colors duration-300 hover:border-[#efd3a2]/62 hover:bg-[#f5dfbd]/[0.14] hover:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/78"
+                      >
+                        <span className="-translate-x-[0.2px] translate-y-[0.1px] leading-none" aria-hidden="true">
+                          ?
+                        </span>
+                      </button>
+                    </div>
                     <div className="relative sm:flex sm:items-center sm:gap-3">
                       <input
                         id="qraft-source-input"
@@ -2443,9 +3268,20 @@ export default function Hero() {
 
         {isLoading && (
           <div
-            className="flex min-h-72 flex-col items-center justify-center"
+            className="flex min-h-[430px] w-full max-w-xl flex-col items-center justify-center"
             style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif', animation: "qraft-reveal 600ms ease-out forwards" }}
           >
+            {loadingSourceLabel && (
+              <div className="mb-7 max-w-full text-center">
+                <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em] text-[#d2ad7c]/42">
+                  Analyzing
+                </p>
+                <p className="mt-2 max-w-md truncate text-sm font-medium leading-[1.5] text-[#f5dfbd]/56 [word-break:keep-all]">
+                  {loadingSourceLabel}
+                </p>
+              </div>
+            )}
+
             <div
               aria-hidden="true"
               className={`relative h-40 w-40 transition-[filter] duration-700 ${
@@ -2471,6 +3307,24 @@ export default function Hero() {
             <p className="mt-7 max-w-md text-center text-sm font-medium leading-[1.7] text-[#f5dfbd]/75 transition-opacity duration-700 [word-break:keep-all] sm:text-base">
               {loadingNotice || loadingMessages[loadingStep]}
             </p>
+
+            <div className="mt-8 w-full max-w-md border-t border-[#d9ad73]/12 pt-5 text-left">
+              <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em] text-[#d2ad7c]/42">
+                다른 사람이 남기고 간 질문
+              </p>
+              <div
+                key={`${currentLoadingQuestion.sourceTitle}-${currentLoadingQuestion.question}`}
+                className="mt-4 min-h-[86px]"
+                style={{ animation: "qraft-reveal 520ms ease-out forwards" }}
+              >
+                <p className="truncate font-mono text-[10px] font-medium uppercase tracking-[0.13em] text-[#d2ad7c]/36">
+                  {currentLoadingQuestion.sourceTitle}
+                </p>
+                <p className="mt-2 text-sm font-medium leading-[1.6] text-[#f5dfbd]/50 [overflow-wrap:anywhere] [word-break:keep-all]">
+                  {currentLoadingQuestion.question}
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -2484,18 +3338,10 @@ export default function Hero() {
                 <p className="font-mono text-[10px] font-medium uppercase leading-none tracking-[0.18em] text-[#d2ad7c]/45">
                   Summary
                 </p>
-                <p
+                <SummaryText
                   className="mt-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/62 [overflow-wrap:anywhere] [word-break:keep-all] sm:text-[15px]"
-                >
-                  {displayedSummaryLines.map((line, index) => (
-                    <span
-                      className={`block ${index > 0 && /^\d+\.\s/.test(line) && !/^\d+\.\s/.test(displayedSummaryLines[index - 1] ?? "") ? "mt-2" : ""}`}
-                      key={`${line}-${index}`}
-                    >
-                      {line}
-                    </span>
-                  ))}
-                </p>
+                  summary={summary}
+                />
               </div>
             )}
 
@@ -2521,61 +3367,179 @@ export default function Hero() {
                 {saveErrorMessage}
               </p>
             )}
+            {saveNotice && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mt-4 flex flex-col gap-3 border border-[#d9ad73]/18 bg-[#f5dfbd]/[0.05] px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <p className="text-sm font-medium leading-[1.6] text-[#f5dfbd]/68">
+                  {saveNotice.message}
+                </p>
+                {saveNotice.actionHref && saveNotice.actionLabel && (
+                  <Link
+                    href={saveNotice.actionHref}
+                    className="shrink-0 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/72 transition-colors duration-300 hover:text-[#f5dfbd]/90 focus:outline-none"
+                  >
+                    {saveNotice.actionLabel}
+                  </Link>
+                )}
+              </div>
+            )}
             <ol className="mt-6 flex flex-col gap-9">
-              {questions.map((q, i) => (
-                <li key={i} className="flex gap-3">
-                  <div className="mt-1 flex shrink-0 flex-col items-center gap-2">
-                    <span className="font-mono text-xs font-medium text-[#d2ad7c]/50">
-                      {String(i + 1).padStart(2, "0")}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => saveQuestion(q, i + 1)}
-                      aria-label={savedQuestionKeys.has(getQuestionKey(lastSource, q)) ? "저장 취소" : "질문 저장"}
-                      className="flex h-6 w-6 -translate-x-px items-center justify-center text-[#d2ad7c]/48 transition-colors duration-300 hover:text-[#f5dfbd]/85 focus:outline-none"
-                    >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill={savedQuestionKeys.has(getQuestionKey(lastSource, q)) ? "currentColor" : "none"} aria-hidden="true">
-                        <path d="M6 3.75h12v16.5l-6-3.75-6 3.75V3.75Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xl font-medium leading-[1.55] text-[#f5dfbd]/88 [overflow-wrap:anywhere] [word-break:keep-all] sm:text-2xl">
-                      {q}
-                    </p>
-                    {reflections[i] && (
-                      <div className="mt-3">
-                        <button
-                          type="button"
-                          onClick={() => toggleReflection(i)}
-                          className="flex items-center gap-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#d2ad7c]/50 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none"
-                        >
-                          <span>타인의 고찰</span>
-                          <svg
-                            width="11"
-                            height="11"
-                            viewBox="0 0 12 12"
-                            fill="none"
-                            className={`transition-transform duration-300 ${
-                              openReflectionIndexes.has(i) ? "rotate-90" : ""
-                            }`}
-                            aria-hidden="true"
+              {questions.map((q, i) => {
+                const questionKey = getCurrentQuestionKey(q)
+                const isSaved = savedQuestionKeys.has(questionKey)
+                const personalNoteEntries = getPersonalNoteEntries(q)
+                const personalNoteDraft = getPersonalNoteDraft(q)
+                const reflection = reflections[i]
+                const reflectionOpen = openReflectionIndexes.has(i)
+                const personalNoteOpen = openPersonalNoteIndexes.has(i)
+                const detailOpen = Boolean((reflection && reflectionOpen) || personalNoteOpen)
+
+                return (
+                  <li key={i} className="flex gap-3">
+                    <div className="flex w-6 shrink-0 flex-col items-center gap-2 pt-[6px]">
+                      <span className="font-mono text-xs font-medium text-[#d2ad7c]/50">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => saveQuestion(q, i + 1)}
+                        aria-label={isSaved ? "저장 취소" : "질문 저장"}
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-[#d2ad7c]/44 transition-colors duration-300 hover:bg-[#f5dfbd]/[0.06] hover:text-[#f5dfbd]/85 focus:outline-none"
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill={isSaved ? "currentColor" : "none"} aria-hidden="true">
+                          <path d="M6 3.75h12v16.5l-6-3.75-6 3.75V3.75Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xl font-medium leading-[1.55] text-[#f5dfbd]/88 [overflow-wrap:anywhere] [word-break:keep-all] sm:text-2xl">
+                        {q}
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                          {reflection && (
+                            <button
+                              type="button"
+                              onClick={() => toggleReflection(i)}
+                              className="flex items-center gap-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#d2ad7c]/50 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none"
+                            >
+                              <span>타인의 고찰</span>
+                              <svg
+                                width="11"
+                                height="11"
+                                viewBox="0 0 12 12"
+                                fill="none"
+                                className={`transition-transform duration-300 ${
+                                  reflectionOpen ? "rotate-90" : ""
+                                }`}
+                                aria-hidden="true"
+                              >
+                                <path d="M4.5 2.5L8 6L4.5 9.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => togglePersonalNote(i)}
+                            className="flex items-center gap-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#d2ad7c]/50 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none"
                           >
-                            <path d="M4.5 2.5L8 6L4.5 9.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
-                        {openReflectionIndexes.has(i) && (
-                          <p
-                            className="qraft-reflection mt-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/62 [overflow-wrap:anywhere] [word-break:keep-all] sm:text-[15px]"
-                          >
-                            {reflections[i]}
-                          </p>
-                        )}
+                            <span>내 고찰</span>
+                            {personalNoteEntries.length > 0 && (
+                              <span className="h-1.5 w-1.5 rounded-full bg-[#efd3a2]/68" aria-hidden="true" />
+                            )}
+                            <svg
+                              width="11"
+                              height="11"
+                                viewBox="0 0 12 12"
+                                fill="none"
+                                className={`transition-transform duration-300 ${
+                                  personalNoteOpen ? "rotate-90" : ""
+                                }`}
+                              aria-hidden="true"
+                            >
+                              <path d="M4.5 2.5L8 6L4.5 9.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
                       </div>
-                    )}
-                  </div>
-                </li>
-              ))}
+                      {detailOpen && (
+                        <div className="mt-4">
+                          {reflection && reflectionOpen && (
+                            <section>
+                              <p className="qraft-reflection text-sm font-medium leading-[1.7] text-[#f5dfbd]/62 [overflow-wrap:anywhere] [word-break:keep-all] sm:text-[15px]">
+                                {reflection}
+                              </p>
+                            </section>
+                          )}
+                          {reflection && reflectionOpen && personalNoteOpen && (
+                            <div className="my-5 border-t border-[#d9ad73]/12" aria-hidden="true" />
+                          )}
+                          {personalNoteOpen && (
+                          <section>
+                            <div className="flex items-center justify-between gap-4">
+                              <p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/50">
+                                내 고찰
+                              </p>
+                            </div>
+                            {personalNoteEntries.length > 0 && (
+                              <div className="mt-3 flex flex-col">
+                                {personalNoteEntries.map((entry, entryIndex) => (
+                                  <article
+                                    key={entry.id}
+                                    className={entryIndex === 0 ? "pb-4" : "border-t border-[#d9ad73]/12 py-4"}
+                                  >
+                                    <div className="flex items-start gap-4">
+                                      <p className="min-w-0 flex-1 whitespace-pre-line text-sm font-medium leading-[1.7] text-[#f5dfbd]/68 [overflow-wrap:anywhere] [word-break:keep-all]">
+                                        {entry.text}
+                                      </p>
+                                      <button
+                                        type="button"
+                                        onClick={() => deletePersonalNote(q, i + 1, entry.id)}
+                                        aria-label="내 고찰 삭제"
+                                        className="flex h-7 w-7 shrink-0 items-center justify-center text-[#d2ad7c]/42 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none"
+                                      >
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                          <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                  </article>
+                                ))}
+                              </div>
+                            )}
+                            <textarea
+                              id={`qraft-personal-note-${i}`}
+                              ref={(node) => {
+                                personalNoteInputRefs.current.set(i, node)
+                              }}
+                              value={personalNoteDraft}
+                              onChange={(event) => updatePersonalNote(q, event.target.value)}
+                              maxLength={personalNoteMaxLength}
+                              rows={4}
+                              placeholder="이 질문에 대한 내 생각을 남겨보세요."
+                              className={`${personalNoteEntries.length > 0 ? "mt-4" : "mt-3"} min-h-28 w-full resize-none border border-[#d9ad73]/16 bg-[#120b07]/46 px-3 py-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/42`}
+                            />
+                            <div className="mt-3 flex items-center justify-between gap-4">
+                              <span className="font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/36">
+                                {personalNoteDraft.length}/{personalNoteMaxLength}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => savePersonalNote(q, i + 1)}
+                                className="rounded-full border border-[#d9ad73]/24 bg-[#f5dfbd]/[0.07] px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.15em] text-[#f5dfbd]/66 transition-colors duration-300 hover:border-[#efd3a2]/52 hover:bg-[#f5dfbd]/[0.12] hover:text-[#fff4dc] focus:outline-none"
+                              >
+                                저장
+                              </button>
+                            </div>
+                          </section>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
             </ol>
 
             <div className="mt-8 border-t border-[#d9ad73]/12 pt-5">

@@ -43,7 +43,23 @@ const isTrustedForwardedHost = (forwardedHost: string, fallbackOrigin: string) =
   return forwardedHostname.endsWith(".vercel.app")
 }
 
+const isLocalHostname = (hostname: string) =>
+  hostname === "localhost" ||
+  hostname === "127.0.0.1" ||
+  hostname === "::1" ||
+  hostname.endsWith(".local")
+
 export function getSiteOrigin(request: Request, fallbackOrigin: string) {
+  const forwardedHost = normalizeForwardedHost(request.headers.get("x-forwarded-host"))
+  const forwardedProto = normalizeForwardedProto(request.headers.get("x-forwarded-proto"))
+  const isLocalEnv = process.env.NODE_ENV === "development"
+  const normalizedFallbackOrigin = stripTrailingSlash(fallbackOrigin)
+  const fallbackHostname = getHostname(normalizedFallbackOrigin)
+
+  if (isLocalEnv && isLocalHostname(fallbackHostname)) {
+    return normalizedFallbackOrigin
+  }
+
   const configuredOrigin =
     normalizeUrl(process.env.NEXT_PUBLIC_SITE_URL ?? "") ||
     normalizeUrl(process.env.SITE_URL ?? "") ||
@@ -54,11 +70,6 @@ export function getSiteOrigin(request: Request, fallbackOrigin: string) {
   if (configuredOrigin) {
     return configuredOrigin
   }
-
-  const forwardedHost = normalizeForwardedHost(request.headers.get("x-forwarded-host"))
-  const forwardedProto = normalizeForwardedProto(request.headers.get("x-forwarded-proto"))
-  const isLocalEnv = process.env.NODE_ENV === "development"
-  const normalizedFallbackOrigin = stripTrailingSlash(fallbackOrigin)
 
   if (isLocalEnv || !forwardedHost) {
     return normalizedFallbackOrigin

@@ -2,8 +2,11 @@
 
 import { MeshGradient } from "@paper-design/shaders-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
+import { useAuth } from "@/context/AuthContext"
 import { gtag } from "@/lib/gtag"
+import { isLocalDevAuthEnabled } from "@/lib/local-dev-auth"
 import { usePerformanceMode } from "@/lib/use-performance-mode"
 
 const desert = {
@@ -13,6 +16,8 @@ const desert = {
 }
 
 export default function AuthPage() {
+    const { signInLocalDev } = useAuth()
+    const router = useRouter()
     const [hasError, setHasError] = useState(false)
     const [errorCode, setErrorCode] = useState("")
     const [errorMessage, setErrorMessage] = useState("")
@@ -101,6 +106,19 @@ export default function AuthPage() {
                             </svg>
                             Continue with Kakao
                         </Link>
+
+                        {isLocalDevAuthEnabled() && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    signInLocalDev()
+                                    router.push("/")
+                                }}
+                                className="flex h-11 w-full items-center justify-center gap-3 border border-[#d9ad73]/24 bg-[#f5dfbd]/[0.06] px-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#f5dfbd]/58 transition-colors duration-300 hover:border-[#d9ad73]/45 hover:bg-[#f5dfbd]/[0.1] focus:outline-none"
+                            >
+                                Local preview login
+                            </button>
+                        )}
                     </div>
 
                     <Link

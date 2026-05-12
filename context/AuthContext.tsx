@@ -6,11 +6,17 @@ import { gtag, type LoginProvider } from "@/lib/gtag"
 import { mixpanelIdentify, mixpanelReset } from "@/lib/mixpanel"
 import { createClient } from "@/lib/supabase/client"
 import { clearStoredQuestionData } from "@/lib/client-storage"
+import {
+  isLocalDevAuthEnabled,
+  localDevAuthStorageKey,
+  localDevUserId,
+} from "@/lib/local-dev-auth"
 
 type AuthContextType = {
   user: User | null
   session: Session | null
   loading: boolean
+  signInLocalDev: () => void
   signOut: () => Promise<void>
 }
 
@@ -18,6 +24,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   session: null,
   loading: true,
+  signInLocalDev: () => {},
   signOut: async () => {},
 })
 
@@ -106,6 +113,50 @@ const trackReturningVisit = () => {
   writeStorageItem("localStorage", visitedStorageKey, "true")
 }
 
+const createLocalDevUser = (): User => {
+  const now = new Date().toISOString()
+
+  return {
+    id: localDevUserId,
+    aud: "authenticated",
+    role: "authenticated",
+    email: "local@qraft.dev",
+    email_confirmed_at: now,
+    phone: "",
+    confirmed_at: now,
+    last_sign_in_at: now,
+    app_metadata: {
+      provider: "local-dev",
+      providers: ["local-dev"],
+    },
+    user_metadata: {
+      full_name: "Local Preview",
+      name: "Local Preview",
+    },
+    identities: [],
+    created_at: now,
+    updated_at: now,
+    is_anonymous: false,
+  } as User
+}
+
+const createLocalDevSession = (): Session => ({
+  access_token: "local-dev-access-token",
+  expires_at: Math.floor(Date.now() / 1000) + 60 * 60 * 24,
+  expires_in: 60 * 60 * 24,
+  refresh_token: "local-dev-refresh-token",
+  token_type: "bearer",
+  user: createLocalDevUser(),
+} as Session)
+
+const readLocalDevSession = () => {
+  if (!isLocalDevAuthEnabled()) return null
+
+  return readStorageItem("localStorage", localDevAuthStorageKey) === "true"
+    ? createLocalDevSession()
+    : null
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
@@ -116,39 +167,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     trackReturningVisit()
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      identifyMixpanelUser(session)
-      trackPendingLoginSuccess(session)
-      setSession(session)
-      setUser(session?.user ?? null)
+      const activeSession = readLocalDevSession() ?? session
+
+      identifyMixpanelUser(activeSession)
+      trackPendingLoginSuccess(activeSession)
+      setSession(activeSession)
+      setUser(activeSession?.user ?? null)
       setLoading(false)
     }).catch(() => setLoading(false))
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      const localDevSession = event === "SIGNED_OUT" ? null : readLocalDevSession()
+      const activeSession = localDevSession ?? session
+
       if (event === "SIGNED_IN") {
-        identifyMixpanelUser(session)
-        trackPendingLoginSuccess(session)
+        identifyMixpanelUser(activeSession)
+        trackPendingLoginSuccess(activeSession)
       }
 
       if (event === "SIGNED_OUT") {
+        removeStorageItem("localStorage", localDevAuthStorageKey)
         clearStoredQuestionData()
         mixpanelReset()
       }
 
-      setSession(session)
-      setUser(session?.user ?? null)
+      setSession(activeSession)
+      setUser(activeSession?.user ?? null)
       setLoading(false)
     })
 
     return () => subscription.unsubscribe()
   }, [supabase])
 
+  const signInLocalDev = () => {
+    if (!isLocalDevAuthEnabled()) return
+
+    writeStorageItem("localStorage", localDevAuthStorageKey, "true")
+    const localSession = createLocalDevSession()
+
+    identifyMixpanelUser(localSession)
+    setSession(localSession)
+    setUser(localSession.user)
+    setLoading(false)
+  }
+
   const signOut = async () => {
+    removeStorageItem("localStorage", localDevAuthStorageKey)
     clearStoredQuestionData()
+    mixpanelReset()
+    setSession(null)
+    setUser(null)
     await supabase.auth.signOut()
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, signInLocalDev, signOut }}>
       {children}
     </AuthContext.Provider>
   )

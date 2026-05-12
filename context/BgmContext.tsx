@@ -4,6 +4,9 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 
 const BGM_SRC = "/bgm.mp3"
 const BGM_VOLUME = 0.82
+const BGM_ON_STORAGE_KEY = "qraft:bgm-on"
+const BGM_TIME_STORAGE_KEY = "qraft:bgm-current-time"
+const BGM_TIME_SYNC_MS = 1000
 
 type BgmContextType = {
   bgmOn: boolean
@@ -21,16 +24,38 @@ const BgmContext = createContext<BgmContextType>({
   toggleBgm: () => {},
 })
 
+const readStoredBgmOn = () => {
+  if (typeof window === "undefined") return true
+
+  return window.localStorage.getItem(BGM_ON_STORAGE_KEY) !== "false"
+}
+
+const readStoredBgmTime = () => {
+  if (typeof window === "undefined") return 0
+
+  const storedTime = Number(window.sessionStorage.getItem(BGM_TIME_STORAGE_KEY))
+
+  return Number.isFinite(storedTime) && storedTime > 0 ? storedTime : 0
+}
+
+const writeStoredBgmTime = (time: number) => {
+  if (typeof window === "undefined" || !Number.isFinite(time)) return
+
+  window.sessionStorage.setItem(BGM_TIME_STORAGE_KEY, String(time))
+}
+
 export function BgmProvider({ children }: { children: React.ReactNode }) {
   const [bgmOn, setBgmOn] = useState(true)
+  const [bgmPreferenceReady, setBgmPreferenceReady] = useState(false)
   const audioRef = useRef<HTMLAudioElement>(null)
   const bgmOnRef = useRef(true)
+  const bgmPreferenceReadyRef = useRef(false)
 
   const toggleBgm = useCallback(() => setBgmOn((v) => !v), [])
 
   const playAudio = useCallback(async () => {
     const audio = audioRef.current
-    if (!audio || !bgmOnRef.current) return false
+    if (!audio || !bgmPreferenceReadyRef.current || !bgmOnRef.current) return false
 
     if (window.__qraftBgmAudio && window.__qraftBgmAudio !== audio) {
       window.__qraftBgmAudio.pause()
@@ -72,6 +97,14 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
         audio.loop = true
         audio.preload = "auto"
         audio.volume = BGM_VOLUME
+
+        const storedTime = readStoredBgmTime()
+        if (storedTime > 0) {
+          try {
+            audio.currentTime = storedTime
+          } catch {}
+        }
+
         void playAudio()
       }
     },
@@ -100,6 +133,7 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
       audio.removeEventListener("canplay", playWhenReady)
       audio.removeEventListener("loadeddata", playWhenReady)
       audio.removeEventListener("canplaythrough", playWhenReady)
+      writeStoredBgmTime(audio.currentTime)
       audio.pause()
 
       if (window.__qraftBgmAudio === audio) {
@@ -109,7 +143,23 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
   }, [playAudio])
 
   useEffect(() => {
+    const preferenceTimer = window.setTimeout(() => {
+      const storedBgmOn = readStoredBgmOn()
+
+      bgmOnRef.current = storedBgmOn
+      bgmPreferenceReadyRef.current = true
+      setBgmOn(storedBgmOn)
+      setBgmPreferenceReady(true)
+    }, 0)
+
+    return () => window.clearTimeout(preferenceTimer)
+  }, [])
+
+  useEffect(() => {
+    if (!bgmPreferenceReady) return
+
     bgmOnRef.current = bgmOn
+    window.localStorage.setItem(BGM_ON_STORAGE_KEY, String(bgmOn))
 
     const audio = audioRef.current
     if (!audio) return
@@ -119,10 +169,31 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
     } else {
       audio.pause()
     }
-  }, [bgmOn, playAudio])
+  }, [bgmOn, bgmPreferenceReady, playAudio])
 
   useEffect(() => {
-    if (!bgmOn) return
+    const syncBgmTime = () => {
+      const audio = audioRef.current
+      if (!audio) return
+
+      writeStoredBgmTime(audio.currentTime)
+    }
+
+    const syncTimer = window.setInterval(syncBgmTime, BGM_TIME_SYNC_MS)
+
+    window.addEventListener("pagehide", syncBgmTime)
+    document.addEventListener("visibilitychange", syncBgmTime)
+
+    return () => {
+      window.clearInterval(syncTimer)
+      window.removeEventListener("pagehide", syncBgmTime)
+      document.removeEventListener("visibilitychange", syncBgmTime)
+      syncBgmTime()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!bgmPreferenceReady || !bgmOn) return
 
     const removeInteractionListeners = () => {
       window.removeEventListener("click", playOnInteraction)
@@ -161,7 +232,7 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
     return () => {
       removeInteractionListeners()
     }
-  }, [bgmOn, playAudio])
+  }, [bgmOn, bgmPreferenceReady, playAudio])
 
   return (
     <BgmContext.Provider value={{ bgmOn, toggleBgm }}>

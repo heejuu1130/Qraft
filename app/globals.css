@@ -77,7 +77,7 @@ body {
 
 .qraft-scroll-cue-shell {
   opacity: 0;
-  animation: qraft-scroll-cue-arrive 1800ms ease 4850ms forwards;
+  animation: qraft-scroll-cue-arrive 900ms ease 3900ms forwards;
 }
 
 .qraft-scroll-cue {
@@ -379,10 +379,6 @@ body {
 
 @keyframes qraft-scroll-cue-arrive {
   0% {
-    opacity: 0;
-  }
-
-  42% {
     opacity: 0;
   }
 

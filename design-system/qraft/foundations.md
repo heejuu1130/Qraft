@@ -89,6 +89,10 @@ Use an 8px base rhythm.
 - Use spacing and alignment to create hierarchy before adding borders or filled surfaces.
 - Avoid stacked decorative cards. Use cards only for repeated items, tools, modals, and true containers.
 - Keep max content widths intentional: 1440px for broad pages, 960-1120px for reading/product content, 640-720px for focused forms.
+- Profile and community screens should keep the first action row close to the content, but never crowd the title, date, or utility icons.
+- In repeated question cards, align metadata, dates, share icons, and delete icons to a shared top line.
+- Use thin section dividers to separate another person's reflection from the user's own reflection; do not wrap reflection text in heavy nested boxes.
+- Two-column card flows should fill horizontally first, then allow vertical irregularity when card content differs in length.
 
 ## 4. Containers And Cards
 
@@ -107,6 +111,11 @@ Use Runway's restrained containment model, not MiniMax's rounded card-heavy prod
 - Prefer a single hairline border over shadows.
 - Do not use purple-tinted MiniMax shadows in Qraft.
 - Avoid colorful product-card gradients unless the content itself requires visualization.
+- Question lists and history entries are reading surfaces first. Use borders and spacing for structure, not decorative card stacking.
+- Personal reflection and community cards may use a bordered card treatment because they are repeated records.
+- Community cards should expose topic, question, accumulated thoughts, heart count, and contribution input without adding explanatory in-card copy.
+- Summary expansion belongs behind the topic/source label. The topic label may behave like a quiet text link when a summary exists.
+- Deletion controls should stay visually small and structural. Use `X` for deleting an individual thought, and the trash icon for deleting an entire question/card.
 
 ## 5. Radius
 
@@ -154,6 +163,16 @@ Motion follows Runway's cinematic restraint and Qraft's silence.
 
 Avoid bounce, spring, elastic easing, confetti, and decorative micro-motion.
 
+### Loading Ritual
+
+Question generation can take time, so the loading state may show a single sampled community-style question while the main generation runs.
+
+- Show one topic and one abstract question at a time.
+- Rotate slowly enough to be read; current interaction baseline is 8 seconds.
+- Avoid numbering sampled loading questions.
+- Do not let the central background animation overlap the topic line.
+- Loading samples should not mirror the user's current input too closely.
+
 ## 8. Application Rules
 
 - Build service screens as tools first, not landing pages.
@@ -161,4 +180,5 @@ Avoid bounce, spring, elastic easing, confetti, and decorative micro-motion.
 - Use Runway-derived cool neutrals only for future component surfaces, not as the main brand color.
 - Use MiniMax-derived type scale consistently before inventing new text sizes.
 - Do not create components from this system until the service surface is defined.
-
+- BGM is a persistent ambient layer. Its state should survive navigation between landing, profile, and community without visual hydration shifts.
+- Top navigation should remain compact and icon-first. Landing and community keep profile access on the right; community keeps back, home, and BGM on the left.

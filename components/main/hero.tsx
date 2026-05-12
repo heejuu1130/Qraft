@@ -635,6 +635,7 @@ export default function Hero() {
   const [savedQuestionKeys, setSavedQuestionKeys] = useState<Set<string>>(() => new Set())
   const [savedQuestionIds, setSavedQuestionIds] = useState<Map<string, string>>(() => new Map())
   const [savedQuestionNotes, setSavedQuestionNotes] = useState<Map<string, string>>(() => new Map())
+  const [savingQuestionKeys, setSavingQuestionKeys] = useState<Set<string>>(() => new Set())
   const [personalNoteDrafts, setPersonalNoteDrafts] = useState<Map<string, string>>(() => new Map())
   const [savedQuestionVisibilities, setSavedQuestionVisibilities] = useState<Map<string, ReflectionVisibility>>(() => new Map())
   const [openPersonalNoteIndexes, setOpenPersonalNoteIndexes] = useState<Set<number>>(() => new Set())
@@ -673,6 +674,7 @@ export default function Hero() {
   const questionInputFocusSentRef = useRef(false)
   const landingSectionViewSentRef = useRef<Set<string>>(new Set())
   const pendingSaveRestoredRef = useRef(false)
+  const pendingSaveQuestionKeysRef = useRef<Set<string>>(new Set())
   const personalNoteInputRefs = useRef<Map<number, HTMLTextAreaElement | null>>(new Map())
   const processSectionActiveRef = useRef(false)
   const hideLandingScrollCueRef = useRef(false)
@@ -1915,7 +1917,15 @@ export default function Hero() {
     const visibilityToSave = options?.visibility ?? savedQuestionVisibilities.get(questionKey) ?? "private"
     gtag.questionSaveIntent({ signed_in: Boolean(user), question_index: questionIndex })
 
-    if (!user) {
+    if (pendingSaveQuestionKeysRef.current.has(questionKey)) {
+      return false
+    }
+
+    pendingSaveQuestionKeysRef.current.add(questionKey)
+    setSavingQuestionKeys((currentKeys) => new Set(currentKeys).add(questionKey))
+
+    try {
+      if (!user) {
       window.sessionStorage.setItem(
         pendingSaveStorageKey,
         JSON.stringify({
@@ -2080,6 +2090,59 @@ export default function Hero() {
     }
 
     {
+      const existingSavedQuestionResponse = await supabase
+        .from("saved_questions")
+        .select("id")
+        .eq("source", sourceToSave)
+        .eq("question", questionToSave)
+        .order("created_at", { ascending: false })
+        .limit(1)
+
+      const existingSavedQuestionId =
+        !existingSavedQuestionResponse.error && existingSavedQuestionResponse.data?.[0]?.id
+
+      if (typeof existingSavedQuestionId === "string") {
+        const { error: updateExistingError } = await supabase
+          .from("saved_questions")
+          .update({
+            personal_note: noteToSave,
+            reflection: reflections[questionIndex - 1] ?? null,
+            shared_at: visibilityToSave === "community" ? new Date().toISOString() : null,
+            updated_at: new Date().toISOString(),
+            visibility: visibilityToSave,
+          })
+          .eq("id", existingSavedQuestionId)
+
+        if (updateExistingError && !isMissingSavedQuestionColumnError(updateExistingError)) {
+          logClientError("hero.question.update_existing", updateExistingError)
+          setSaveErrorMessage("저장 상태를 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+          return false
+        }
+
+        setSaveErrorMessage("")
+        setSavedQuestionKeys((currentKeys) => new Set(currentKeys).add(questionKey))
+        setSavedQuestionIds((currentIds) => new Map(currentIds).set(questionKey, existingSavedQuestionId))
+        setSavedQuestionNotes((currentNotes) => new Map(currentNotes).set(questionKey, noteToSave))
+        setSavedQuestionVisibilities((currentVisibilities) =>
+          new Map(currentVisibilities).set(questionKey, visibilityToSave)
+        )
+        rememberSavedQuestionLocally({
+          id: existingSavedQuestionId,
+          note: noteToSave,
+          question: questionToSave,
+          questionIndex,
+          source: sourceToSave,
+          summary: summaryToSave,
+          visibility: visibilityToSave,
+        })
+        setSaveNotice({
+          actionHref: visibilityToSave === "community" ? "/community" : savedQuestionsProfileHref,
+          actionLabel: visibilityToSave === "community" ? "커뮤니티 보기" : "저장 목록 보기",
+          message: visibilityToSave === "community" ? "커뮤니티에 공유했습니다." : "저장했습니다.",
+        })
+        return true
+      }
+
       const { data, error } = await supabase.from("saved_questions").insert({
         user_id: user.id,
         source: sourceToSave,
@@ -2134,6 +2197,15 @@ export default function Hero() {
         message: visibilityToSave === "community" ? "저장하고 커뮤니티에 공유했습니다." : "저장했습니다.",
       })
       return true
+    }
+    } finally {
+      pendingSaveQuestionKeysRef.current.delete(questionKey)
+      setSavingQuestionKeys((currentKeys) => {
+        const nextKeys = new Set(currentKeys)
+
+        nextKeys.delete(questionKey)
+        return nextKeys
+      })
     }
   }
 
@@ -3390,6 +3462,7 @@ export default function Hero() {
               {questions.map((q, i) => {
                 const questionKey = getCurrentQuestionKey(q)
                 const isSaved = savedQuestionKeys.has(questionKey)
+                const isSavePending = savingQuestionKeys.has(questionKey)
                 const personalNoteEntries = getPersonalNoteEntries(q)
                 const personalNoteDraft = getPersonalNoteDraft(q)
                 const reflection = reflections[i]
@@ -3406,8 +3479,9 @@ export default function Hero() {
                       <button
                         type="button"
                         onClick={() => saveQuestion(q, i + 1)}
+                        disabled={isSavePending}
                         aria-label={isSaved ? "저장 취소" : "질문 저장"}
-                        className="flex h-7 w-7 items-center justify-center rounded-full text-[#d2ad7c]/44 transition-colors duration-300 hover:bg-[#f5dfbd]/[0.06] hover:text-[#f5dfbd]/85 focus:outline-none"
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-[#d2ad7c]/44 transition-colors duration-300 hover:bg-[#f5dfbd]/[0.06] hover:text-[#f5dfbd]/85 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45"
                       >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill={isSaved ? "currentColor" : "none"} aria-hidden="true">
                           <path d="M6 3.75h12v16.5l-6-3.75-6 3.75V3.75Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />

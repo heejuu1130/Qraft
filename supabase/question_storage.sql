@@ -132,6 +132,28 @@ create index if not exists saved_questions_visibility_shared_at_idx
   on public.saved_questions (visibility, shared_at desc)
   where visibility = 'community';
 
+with ranked_saved_questions as (
+  select
+    id,
+    row_number() over (
+      partition by user_id, md5(source), md5(question)
+      order by
+        case when coalesce(personal_note, '') <> '' then 1 else 0 end desc,
+        case when coalesce(reflection, '') <> '' then 1 else 0 end desc,
+        case when visibility = 'community' then 1 else 0 end desc,
+        created_at desc,
+        id desc
+    ) as duplicate_rank
+  from public.saved_questions
+)
+delete from public.saved_questions
+using ranked_saved_questions
+where public.saved_questions.id = ranked_saved_questions.id
+  and ranked_saved_questions.duplicate_rank > 1;
+
+create unique index if not exists saved_questions_user_source_question_hash_idx
+  on public.saved_questions (user_id, md5(source), md5(question));
+
 alter table public.saved_questions enable row level security;
 
 grant usage on schema public to authenticated;

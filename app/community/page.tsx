@@ -1248,7 +1248,7 @@ export default function CommunityPage() {
                   key={thread.id}
                   className="w-full min-w-0 border border-[#d9ad73]/18 bg-[#120b07]/55 px-5 pb-5 pt-5 shadow-[0_18px_50px_rgba(13,8,5,0.34)] backdrop-blur-xl"
                 >
-                  <div className="mb-5 flex items-start justify-between gap-4">
+                  <div className="mb-4 flex items-start justify-between gap-4">
                     {thread.summary.trim() ? (
                       <button
                         type="button"

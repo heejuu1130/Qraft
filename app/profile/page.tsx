@@ -979,7 +979,7 @@ export default function ProfilePage() {
         <p className={`${summaryOpen && hasSummary ? "mt-4" : "mt-3"} text-xl font-medium leading-[1.55] text-[#f5dfbd]/88 [overflow-wrap:anywhere] [word-break:keep-all]`}>
           {item.question}
         </p>
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
           {item.reflection && (
             <button
               type="button"

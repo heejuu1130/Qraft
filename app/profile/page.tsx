@@ -1283,7 +1283,7 @@ export default function ProfilePage() {
               {item.sourceTitle}
             </p>
           )}
-          <div className="flex shrink-0 items-start gap-3">
+          <div className={`flex shrink-0 items-start ${isShared ? "gap-3" : "gap-1.5"}`}>
             <button
               type="button"
               onClick={() => {

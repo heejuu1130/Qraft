@@ -21,6 +21,10 @@ const geminiRouterTimeoutMs = 2500
 const geminiRouterMaxTokens = 160
 const geminiPreSummarizeTimeoutMs = 8000
 const compressedContentLimit = 2000
+const articleReaderMinContentLength = 420
+const articleReaderFallbackMinContentLength = 180
+const directArticleFetchTimeoutMs = 9000
+const directArticleMaxHtmlBytes = 512_000
 const regenerationMaxTokens = 950
 const previousQuestionLimit = 8
 const questionRateLimitWindowMs = 60 * 60 * 1000
@@ -31,7 +35,7 @@ const cacheCurrentFactTtlMs = 36 * 60 * 60 * 1000
 const cacheFactualTopicTtlMs = 7 * 24 * 60 * 60 * 1000
 const cacheTopicTtlMs = 30 * 24 * 60 * 60 * 1000
 const cacheLinkTtlMs = 60 * 24 * 60 * 60 * 1000
-const questionCacheVersion = "v12"
+const questionCacheVersion = "v13"
 const qraftServiceKnowledgeVersion = "qraft_service_v1"
 const tokenStrategyVersion = process.env.QRAFT_TOKEN_STRATEGY_VERSION?.trim() || "usage_v1"
 const tokenEventColumnNames = [
@@ -712,6 +716,16 @@ function isUrl(str: string): boolean {
   }
 }
 
+function isPublicHttpUrl(source: string) {
+  try {
+    const url = new URL(source)
+
+    return (url.protocol === "http:" || url.protocol === "https:") && !isLocalOrPrivateHostname(url.hostname)
+  } catch {
+    return false
+  }
+}
+
 function getClientIp(request: Request): string {
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
   const realIp = request.headers.get("x-real-ip")?.trim()
@@ -979,27 +993,233 @@ function getArticleReaderCandidateUrls(source: string) {
   return Array.from(new Set(candidateUrls))
 }
 
+function isUsableArticleReaderContent(content: string) {
+  const cleanedContent = content.trim()
+  const meaningfulLineCount = cleanedContent
+    .split("\n")
+    .filter((line) => line.trim().length >= 32).length
+
+  return cleanedContent.length >= articleReaderMinContentLength && meaningfulLineCount >= 2
+}
+
+async function readLimitedResponseText(response: Response, maxBytes: number) {
+  if (!response.body) return response.text()
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let receivedBytes = 0
+  let text = ""
+
+  while (receivedBytes < maxBytes) {
+    const { done, value } = await reader.read()
+
+    if (done) break
+
+    const remainingBytes = maxBytes - receivedBytes
+    const chunk = value.byteLength > remainingBytes ? value.slice(0, remainingBytes) : value
+
+    receivedBytes += chunk.byteLength
+    text += decoder.decode(chunk, { stream: receivedBytes < maxBytes })
+
+    if (value.byteLength > remainingBytes) {
+      await reader.cancel()
+      break
+    }
+  }
+
+  return text + decoder.decode()
+}
+
+function decodeHtmlEntities(value: string) {
+  const namedEntities: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    nbsp: " ",
+    quot: '"',
+  }
+
+  return value.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity: string) => {
+    const normalizedEntity = entity.toLowerCase()
+
+    if (normalizedEntity[0] === "#") {
+      const isHex = normalizedEntity.startsWith("#x")
+      const codePoint = Number.parseInt(normalizedEntity.slice(isHex ? 2 : 1), isHex ? 16 : 10)
+
+      return Number.isFinite(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : match
+    }
+
+    return namedEntities[normalizedEntity] ?? match
+  })
+}
+
+function cleanHtmlText(value: string) {
+  return decodeHtmlEntities(
+    value
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(?:p|div|section|article|main|li|h[1-6])>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+  )
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+}
+
+function extractHtmlMetaContent(html: string, names: string[]) {
+  for (const name of names) {
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const patterns = [
+      new RegExp(`<meta\\s+[^>]*(?:property|name)=["']${escapedName}["'][^>]*content=["']([^"']+)["'][^>]*>`, "i"),
+      new RegExp(`<meta\\s+[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["']${escapedName}["'][^>]*>`, "i"),
+    ]
+
+    for (const pattern of patterns) {
+      const match = html.match(pattern)
+      const content = match?.[1] ? cleanHtmlText(match[1]) : ""
+
+      if (content) return content
+    }
+  }
+
+  return ""
+}
+
+function extractHtmlTitle(html: string) {
+  const metaTitle = extractHtmlMetaContent(html, ["og:title", "twitter:title"])
+  if (metaTitle) return metaTitle
+
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
+  return title ? cleanHtmlText(title) : ""
+}
+
+function getReadableHtmlSection(html: string) {
+  const sectionMatches = Array.from(html.matchAll(/<(article|main)\b[^>]*>([\s\S]*?)<\/\1>/gi))
+  const sections = sectionMatches
+    .map((match) => cleanHtmlText(match[2] ?? ""))
+    .filter((text) => text.length >= articleReaderFallbackMinContentLength)
+
+  if (sections.length > 0) {
+    return sections.sort((a, b) => b.length - a.length)[0]
+  }
+
+  const paragraphText = Array.from(html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi))
+    .map((match) => cleanHtmlText(match[1] ?? ""))
+    .filter((text) => text.length >= 24)
+    .join("\n\n")
+
+  return paragraphText || cleanHtmlText(html)
+}
+
+async function fetchDirectArticleContent(source: string) {
+  if (!isPublicHttpUrl(source)) {
+    throw new Error("공개 URL만 직접 본문 수집을 시도합니다.")
+  }
+
+  const response = await fetch(source, {
+    headers: {
+      Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+      "User-Agent": "Mozilla/5.0 (compatible; Qraft/1.0; +https://qraft.app)",
+    },
+    signal: AbortSignal.timeout(directArticleFetchTimeoutMs),
+  })
+
+  if (!response.ok) {
+    throw new Error(`직접 URL 요청 실패: ${response.status}`)
+  }
+
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
+  const rawText = await readLimitedResponseText(response, directArticleMaxHtmlBytes)
+
+  if (!contentType.includes("html")) {
+    return cleanReaderContent(rawText).slice(0, contentCharacterLimit)
+  }
+
+  const title = extractHtmlTitle(rawText)
+  const description = extractHtmlMetaContent(rawText, ["og:description", "twitter:description", "description"])
+  const publishedTime = extractHtmlMetaContent(rawText, [
+    "article:published_time",
+    "date",
+    "dc.date",
+    "pubdate",
+  ])
+  const articleText = getReadableHtmlSection(rawText)
+  const parts = [
+    title ? `Title: ${title}` : "",
+    description ? `Description: ${description}` : "",
+    publishedTime ? `Published: ${publishedTime}` : "",
+    articleText,
+  ].filter(Boolean)
+
+  return cleanReaderContent(parts.join("\n\n")).slice(0, contentCharacterLimit)
+}
+
 async function fetchUrlReaderContent(source: string) {
   const candidateUrls = getArticleReaderCandidateUrls(source)
   const timeoutAttempts = [jinaReaderTimeoutMs, jinaReaderRetryTimeoutMs]
   let lastError: unknown = null
+  let bestFallbackContent = ""
 
   for (const candidateUrl of candidateUrls) {
+    let directContentChecked = false
+    const directContentPromise = fetchDirectArticleContent(candidateUrl).catch((error) => {
+      lastError = error
+      return ""
+    })
+    const readDirectCandidate = async () => {
+      if (directContentChecked) return null
+
+      directContentChecked = true
+      const directContent = await directContentPromise
+
+      if (directContent.trim().length > bestFallbackContent.trim().length) {
+        bestFallbackContent = directContent
+      }
+
+      return isUsableArticleReaderContent(directContent) ? directContent : null
+    }
+
     for (const timeoutMs of timeoutAttempts) {
       try {
         const content = await fetchViaJina(candidateUrl, timeoutMs)
 
-        if (content.trim()) {
+        if (content.trim().length > bestFallbackContent.trim().length) {
+          bestFallbackContent = content
+        }
+
+        if (isUsableArticleReaderContent(content)) {
           return content
         }
 
-        lastError = new Error("Jina 빈 응답")
+        lastError = new Error("Jina 본문이 너무 짧거나 불완전합니다.")
       } catch (error) {
         lastError = error
       }
 
+      const directContent = await readDirectCandidate()
+
+      if (directContent) {
+        return directContent
+      }
+
       await wait(jinaReaderRetryDelayMs)
     }
+
+    const directContent = await readDirectCandidate()
+
+    if (directContent) {
+      return directContent
+    }
+  }
+
+  if (bestFallbackContent.trim().length >= articleReaderFallbackMinContentLength) {
+    return bestFallbackContent
   }
 
   if (lastError) {
@@ -1889,13 +2109,28 @@ async function fetchGeminiGroundedSummary(
 
 async function compressContentWithGemini(
   content: string,
-  tokenUsage?: TokenUsageAccumulator
+  tokenUsage?: TokenUsageAccumulator,
+  options: { source?: string; sourceKind?: SourceKind } = {}
 ): Promise<string> {
   if (content.length <= compressedContentLimit) return content
 
   const apiKey = getGeminiApiKey()
   if (!apiKey) return content
   const model = getGeminiPreSummarizeModel()
+  const isUrlSource = options.sourceKind === "url"
+  const compressionInstruction = isUrlSource
+    ? [
+        "다음 텍스트는 URL에서 수집한 뉴스/아티클 후보 본문입니다.",
+        options.source ? `원본 URL: ${options.source}` : "",
+        "기사 제목, 매체명, 작성·발행일, 리드 문단, 핵심 사건/주장, 관련 인물·기관을 우선 보존하세요.",
+        "압축 결과가 본문 중간에서 갑자기 시작한 것처럼 보이면 안 됩니다. 제목 또는 핵심 리드가 확인되면 맨 앞에 배치하세요.",
+        "광고·메뉴·구독 유도·공유 버튼·관련기사 목록·반복 문구는 제거하세요.",
+        "원문의 언어를 그대로 유지하고, 원문에 없는 내용은 추가하지 마세요.",
+        "압축된 텍스트만 2000자 이내로 출력하세요.",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "다음 텍스트에서 핵심 사실, 주요 주장, 인물, 수치, 날짜, 논점을 빠짐없이 보존하고, 광고·메뉴·공유버튼·반복 문구 등 불필요한 요소를 제거하여 2000자 이내로 압축하세요. 원문의 언어를 그대로 유지하고, 원문에 없는 내용은 추가하지 마세요. 압축된 텍스트만 출력하세요."
 
   try {
     const response = await fetch(
@@ -1912,7 +2147,7 @@ async function compressContentWithGemini(
               parts: [
                 {
                   text: [
-                    "다음 텍스트에서 핵심 사실, 주요 주장, 인물, 수치, 날짜, 논점을 빠짐없이 보존하고, 광고·메뉴·공유버튼·반복 문구 등 불필요한 요소를 제거하여 2000자 이내로 압축하세요. 원문의 언어를 그대로 유지하고, 원문에 없는 내용은 추가하지 마세요. 압축된 텍스트만 출력하세요.",
+                    compressionInstruction,
                     content,
                   ].join("\n\n"),
                 },
@@ -2794,7 +3029,7 @@ export async function POST(request: Request) {
   } else if (sourceKind === "url") {
     try {
       const rawContent = await fetchUrlReaderContent(source)
-      content = await compressContentWithGemini(rawContent, tokenUsage)
+      content = await compressContentWithGemini(rawContent, tokenUsage, { source, sourceKind })
     } catch {
       responseUseWebSearch = true
       const geminiContent = await fetchGeminiGroundedSummary(source, tokenUsage, { sourceKind })

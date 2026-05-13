@@ -290,6 +290,12 @@ type SaveNotice = {
   message: string
 }
 
+type PersonalNoteDeleteTarget = {
+  entryId: string
+  question: string
+  questionIndex: number
+}
+
 type QuestionPayload = {
   cacheHit?: boolean
   summary: string
@@ -656,6 +662,7 @@ export default function Hero() {
   const [feedbackErrorMessage, setFeedbackErrorMessage] = useState("")
   const [showNewQuestionOverlay, setShowNewQuestionOverlay] = useState(false)
   const [showServiceHelp, setShowServiceHelp] = useState(false)
+  const [personalNoteDeleteTarget, setPersonalNoteDeleteTarget] = useState<PersonalNoteDeleteTarget | null>(null)
   const [loadingQuestionSamples, setLoadingQuestionSamples] =
     useState<LoadingQuestionSample[]>(fallbackLoadingQuestions)
   const [loadingQuestionSampleIndex, setLoadingQuestionSampleIndex] = useState(0)
@@ -2271,6 +2278,15 @@ export default function Hero() {
     }
   }
 
+  const confirmPersonalNoteDelete = async () => {
+    const target = personalNoteDeleteTarget
+
+    if (!target) return
+
+    await deletePersonalNote(target.question, target.questionIndex, target.entryId)
+    setPersonalNoteDeleteTarget(null)
+  }
+
   useEffect(() => {
     if (!user || pendingSaveRestoredRef.current) return
 
@@ -2669,6 +2685,49 @@ export default function Hero() {
               <p className="text-xs font-medium leading-[1.7] text-[#f5dfbd]/42 [word-break:keep-all]">
                 예: 뉴스 기사 URL · 유튜브 링크 · 원문 · 양자역학이란? · 죽음에 관하여 등
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {personalNoteDeleteTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#080403]/70 px-5 backdrop-blur-md"
+          role="presentation"
+          onClick={() => setPersonalNoteDeleteTarget(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="qraft-delete-personal-note-title"
+            className="w-full max-w-sm border border-[#d9ad73]/24 bg-[#120b07]/95 p-6 text-left shadow-[0_24px_80px_rgba(13,8,5,0.72)]"
+            style={{ fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif' }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p
+              id="qraft-delete-personal-note-title"
+              className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2ad7c]/55"
+            >
+              내 고찰 삭제
+            </p>
+            <p className="mt-4 text-sm font-medium leading-[1.75] text-[#f5dfbd]/72 [word-break:keep-all]">
+              이 고찰을 정말 삭제하시겠습니까?
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPersonalNoteDeleteTarget(null)}
+                className="border border-[#d9ad73]/18 bg-[#f5dfbd]/[0.04] px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#f5dfbd]/46 transition-colors duration-300 hover:text-[#f5dfbd]/72 focus:outline-none"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={confirmPersonalNoteDelete}
+                className="border border-[#d9ad73]/30 bg-[#8d4f31]/18 px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#efd3a2]/78 transition-colors duration-300 hover:border-[#efd3a2]/52 hover:bg-[#8d4f31]/28 hover:text-[#fff4dc] focus:outline-none"
+              >
+                삭제
+              </button>
             </div>
           </div>
         </div>
@@ -3578,7 +3637,13 @@ export default function Hero() {
                                       </p>
                                       <button
                                         type="button"
-                                        onClick={() => deletePersonalNote(q, i + 1, entry.id)}
+                                        onClick={() =>
+                                          setPersonalNoteDeleteTarget({
+                                            entryId: entry.id,
+                                            question: q,
+                                            questionIndex: i + 1,
+                                          })
+                                        }
                                         aria-label="내 고찰 삭제"
                                         className="flex h-7 w-7 shrink-0 items-center justify-center text-[#d2ad7c]/42 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none"
                                       >

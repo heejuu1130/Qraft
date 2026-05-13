@@ -103,6 +103,17 @@ const formatDate = (value: string) =>
 const getSourceTitle = (source: string, sourceTitleOverrides: Record<string, string>) =>
   getSourceDisplayTitle(source, sourceTitleOverrides[source])
 
+const getSourceUrl = (source: string) => {
+  try {
+    const url = new URL(source)
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
 const getDisplayName = (user: ReturnType<typeof useAuth>["user"]) => {
   if (!user) return "Profile"
 
@@ -251,6 +262,19 @@ function TrashIcon({ className }: { className: string }) {
   )
 }
 
+function SourceLink({ href }: { href: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="mt-2 block max-w-full truncate font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-[#d2ad7c]/42 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
+    >
+      원본 링크
+    </a>
+  )
+}
+
 const mapLocalLegacyThread = (item: SavedQuestionLocalMeta): CommunityThread | null => {
   const noteEntries = readPersonalNoteEntries(item.personalNote)
 
@@ -353,6 +377,10 @@ export default function CommunityPage() {
   const [likedThreadIds, setLikedThreadIds] = useState<Set<string>>(new Set())
   const [savingLikeThreadIds, setSavingLikeThreadIds] = useState<Set<string>>(new Set())
   const [threadPendingDeletion, setThreadPendingDeletion] = useState<CommunityThread | null>(null)
+  const [reflectionPendingDeletion, setReflectionPendingDeletion] = useState<{
+    entry: CommunityReflectionEntry
+    thread: CommunityThread
+  } | null>(null)
   const [showMineOnly, setShowMineOnly] = useState(false)
   const [isCommunityAdmin, setIsCommunityAdmin] = useState(false)
   const [showLoginRequiredModal, setShowLoginRequiredModal] = useState(false)
@@ -901,6 +929,15 @@ export default function CommunityPage() {
     }
   }
 
+  const confirmDeleteCommunityReflection = async () => {
+    const target = reflectionPendingDeletion
+
+    if (!target) return
+
+    await deleteCommunityReflection(target.thread, target.entry)
+    setReflectionPendingDeletion(null)
+  }
+
   const requestDeleteThread = (thread: CommunityThread) => {
     if (!canDeleteThread(thread)) return
 
@@ -1284,6 +1321,7 @@ export default function CommunityPage() {
               const sourceThread = threads.find((item) => item.id === thread.id) ?? thread
               const summaryOpen = openSummaryIds.has(thread.id)
               const sourceTitle = getSourceTitle(thread.source, sourceTitleOverrides)
+              const sourceUrl = getSourceUrl(thread.source)
               const draft = reflectionDrafts[thread.id] ?? ""
               const savingReflection = savingReflectionIds.has(thread.id)
               const threadCanDelete = canDeleteThread(sourceThread)
@@ -1297,20 +1335,23 @@ export default function CommunityPage() {
                   className="w-full min-w-0 border border-[#d9ad73]/18 bg-[#120b07]/55 px-5 pb-5 pt-5 shadow-[0_18px_50px_rgba(13,8,5,0.34)] backdrop-blur-xl"
                 >
                   <div className="mb-4 flex items-start justify-between gap-4">
-                    {thread.summary.trim() ? (
-                      <button
-                        type="button"
-                        onClick={() => toggleSummary(thread.id)}
-                        title="요약 보기"
-                        className="min-w-0 -translate-y-[1.5px] truncate text-left font-mono text-xs font-medium leading-none tracking-[0.12em] text-[#d2ad7c]/46 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
-                      >
-                        {sourceTitle}
-                      </button>
-                    ) : (
-                      <p className="min-w-0 -translate-y-[1.5px] truncate font-mono text-xs font-medium leading-none tracking-[0.12em] text-[#d2ad7c]/42">
-                        {sourceTitle}
-                      </p>
-                    )}
+                    <div className="min-w-0">
+                      {thread.summary.trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleSummary(thread.id)}
+                          title="요약 보기"
+                          className="block max-w-full -translate-y-[1.5px] truncate text-left font-mono text-xs font-medium leading-none tracking-[0.12em] text-[#d2ad7c]/46 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
+                        >
+                          {sourceTitle}
+                        </button>
+                      ) : (
+                        <p className="max-w-full -translate-y-[1.5px] truncate font-mono text-xs font-medium leading-none tracking-[0.12em] text-[#d2ad7c]/42">
+                          {sourceTitle}
+                        </p>
+                      )}
+                      {sourceUrl && <SourceLink href={sourceUrl} />}
+                    </div>
                     <div className="flex shrink-0 items-start gap-3">
                       <time className="font-mono text-[10px] leading-none text-[#f5dfbd]/32">
                         {formatDate(thread.updatedAt)}
@@ -1365,7 +1406,12 @@ export default function CommunityPage() {
                                 {canDeleteReflection(entry) && (
                                   <button
                                     type="button"
-                                    onClick={() => deleteCommunityReflection(thread, entry)}
+                                    onClick={() =>
+                                      setReflectionPendingDeletion({
+                                        entry,
+                                        thread: sourceThread,
+                                      })
+                                    }
                                     disabled={deletingReflectionIds.has(entry.id)}
                                     aria-label={isOwnReflection(entry) ? "내 생각 삭제" : "생각 삭제"}
                                     className="flex h-7 w-7 shrink-0 items-center justify-center text-[#d2ad7c]/42 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45"
@@ -1480,6 +1526,48 @@ export default function CommunityPage() {
                 onClick={deleteCommunityThread}
                 disabled={deletingThreadIds.has(threadPendingDeletion.id)}
                 className="border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.08] px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#f5dfbd]/76 transition-colors duration-300 hover:border-[#efd3a2]/52 hover:text-[#fff4dc] focus:outline-none disabled:cursor-not-allowed disabled:text-[#f5dfbd]/30"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {reflectionPendingDeletion && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#080403]/70 px-5 backdrop-blur-md"
+          role="presentation"
+          onClick={() => setReflectionPendingDeletion(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="community-delete-reflection-title"
+            className="w-full max-w-sm border border-[#d9ad73]/24 bg-[#120b07]/95 p-6 shadow-[0_24px_80px_rgba(13,8,5,0.72)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p
+              id="community-delete-reflection-title"
+              className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2ad7c]/55"
+            >
+              생각 삭제
+            </p>
+            <p className="mt-4 text-sm font-medium leading-[1.75] text-[#f5dfbd]/72 [word-break:keep-all]">
+              이 생각을 정말 삭제하시겠습니까?
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setReflectionPendingDeletion(null)}
+                className="border border-[#d9ad73]/18 bg-[#f5dfbd]/[0.04] px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#f5dfbd]/46 transition-colors duration-300 hover:text-[#f5dfbd]/72 focus:outline-none"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteCommunityReflection}
+                disabled={deletingReflectionIds.has(reflectionPendingDeletion.entry.id)}
+                className="border border-[#d9ad73]/30 bg-[#8d4f31]/18 px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#efd3a2]/78 transition-colors duration-300 hover:border-[#efd3a2]/52 hover:bg-[#8d4f31]/28 hover:text-[#fff4dc] focus:outline-none disabled:cursor-not-allowed disabled:text-[#f5dfbd]/30"
               >
                 삭제
               </button>

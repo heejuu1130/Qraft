@@ -51,6 +51,28 @@ type NoteShareRemovalTarget = {
   savedQuestion: SavedQuestion
 }
 
+type ProfileDeleteTarget =
+  | {
+      kind: "history"
+      id: string
+      title: string
+    }
+  | {
+      kind: "saved-question"
+      id: string
+      title: string
+    }
+  | {
+      kind: "personal-note"
+      entryId: string
+      savedQuestion: SavedQuestion
+    }
+  | {
+      kind: "personal-note-group"
+      count: number
+      savedQuestion: SavedQuestion
+    }
+
 type QuestionHistory = {
   id: string
   source: string
@@ -252,6 +274,17 @@ const formatDate = (value: string) =>
 const getHistoryTitle = (source: string, sourceTitleOverrides: Record<string, string>) =>
   getSourceDisplayTitle(source, sourceTitleOverrides[source])
 
+const getSourceUrl = (source: string) => {
+  try {
+    const url = new URL(source)
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
 const getPersonalNoteCardId = (savedQuestionId: string, entryId: string) => `${savedQuestionId}-${entryId}`
 
 const isMissingCommunityTableError = (error: unknown) => {
@@ -276,6 +309,7 @@ export default function ProfilePage() {
   const [savedQuestions, setSavedQuestions] = useState<SavedQuestion[]>([])
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({})
   const [noteShareRemovalTarget, setNoteShareRemovalTarget] = useState<NoteShareRemovalTarget | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<ProfileDeleteTarget | null>(null)
   const [sharingNoteIds, setSharingNoteIds] = useState<Set<string>>(() => new Set())
   const [sourceTitleOverrides, setSourceTitleOverrides] = useState<Record<string, string>>({})
   const [profileErrorMessage, setProfileErrorMessage] = useState("")
@@ -1063,6 +1097,24 @@ export default function ProfilePage() {
     })
   }
 
+  const confirmProfileDelete = async () => {
+    const target = deleteTarget
+
+    if (!target) return
+
+    if (target.kind === "history") {
+      await deleteHistory(target.id)
+    } else if (target.kind === "saved-question") {
+      await deleteSavedQuestion(target.id)
+    } else if (target.kind === "personal-note") {
+      await deleteSavedQuestionNote(target.savedQuestion, target.entryId)
+    } else {
+      await deleteSavedQuestionNotes(target.savedQuestion)
+    }
+
+    setDeleteTarget(null)
+  }
+
   const goBack = () => {
     if (window.history.length > 1) {
       router.back()
@@ -1107,6 +1159,8 @@ export default function ProfilePage() {
     const reflectionOpen = openSavedReflectionIds.has(item.id)
     const noteOpen = openSavedNoteIds.has(item.id)
     const detailOpen = Boolean((item.reflection && reflectionOpen) || noteOpen)
+    const sourceTitle = getHistoryTitle(item.source, sourceTitleOverrides)
+    const sourceUrl = getSourceUrl(item.source)
 
     return (
       <article
@@ -1125,13 +1179,14 @@ export default function ProfilePage() {
                 title="요약 보기"
                 className="mt-2 block max-w-full truncate text-left text-xs font-medium leading-[1.5] text-[#f5dfbd]/36 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/66 hover:underline focus:outline-none"
               >
-                {getHistoryTitle(item.source, sourceTitleOverrides)}
+                {sourceTitle}
               </button>
             ) : (
               <p className="mt-2 truncate text-xs font-medium leading-[1.5] text-[#f5dfbd]/36">
-                {getHistoryTitle(item.source, sourceTitleOverrides)}
+                {sourceTitle}
               </p>
             )}
+            {sourceUrl && <SourceLink href={sourceUrl} />}
           </div>
           <div className="flex shrink-0 items-start gap-3">
             <time className="font-mono text-[10px] leading-none text-[#f5dfbd]/32">
@@ -1140,7 +1195,13 @@ export default function ProfilePage() {
             <DeleteButton
               compact
               label="저장한 질문 삭제"
-              onClick={() => deleteSavedQuestion(item.id)}
+              onClick={() =>
+                setDeleteTarget({
+                  kind: "saved-question",
+                  id: item.id,
+                  title: sourceTitle,
+                })
+              }
             />
           </div>
         </div>
@@ -1222,7 +1283,13 @@ export default function ProfilePage() {
                           </p>
                           <button
                             type="button"
-                            onClick={() => deleteSavedQuestionNote(item, entry.id)}
+                            onClick={() =>
+                              setDeleteTarget({
+                                kind: "personal-note",
+                                entryId: entry.id,
+                                savedQuestion: item,
+                              })
+                            }
                             aria-label="내 고찰 삭제"
                             className="flex h-7 w-7 shrink-0 items-center justify-center text-[#d2ad7c]/42 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none"
                           >
@@ -1288,6 +1355,7 @@ export default function ProfilePage() {
       : isShared
         ? "커뮤니티 공유 취소"
         : "커뮤니티에 공유"
+    const sourceUrl = getSourceUrl(item.savedQuestion.source)
 
     return (
       <article
@@ -1295,20 +1363,23 @@ export default function ProfilePage() {
         className="border border-[#d9ad73]/18 bg-[#120b07]/55 p-5 shadow-[0_18px_50px_rgba(13,8,5,0.34)] backdrop-blur-xl"
       >
         <div className="flex items-start justify-between gap-4">
-          {item.summary.trim() ? (
-            <button
-              type="button"
-              onClick={() => toggleNoteSummary(item.id)}
-              title="요약 보기"
-              className="min-w-0 -translate-y-[4px] truncate text-left font-mono text-xs font-medium leading-[1.5] tracking-[0.12em] text-[#d2ad7c]/46 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
-            >
-              {item.sourceTitle}
-            </button>
-          ) : (
-            <p className="min-w-0 -translate-y-[4px] truncate font-mono text-xs font-medium leading-[1.5] tracking-[0.12em] text-[#d2ad7c]/42">
-              {item.sourceTitle}
-            </p>
-          )}
+          <div className="min-w-0">
+            {item.summary.trim() ? (
+              <button
+                type="button"
+                onClick={() => toggleNoteSummary(item.id)}
+                title="요약 보기"
+                className="block max-w-full -translate-y-[4px] truncate text-left font-mono text-xs font-medium leading-[1.5] tracking-[0.12em] text-[#d2ad7c]/46 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
+              >
+                {item.sourceTitle}
+              </button>
+            ) : (
+              <p className="max-w-full -translate-y-[4px] truncate font-mono text-xs font-medium leading-[1.5] tracking-[0.12em] text-[#d2ad7c]/42">
+                {item.sourceTitle}
+              </p>
+            )}
+            {sourceUrl && <SourceLink href={sourceUrl} />}
+          </div>
           <div className={`flex shrink-0 items-start ${isShared ? "gap-3" : "gap-1.5"}`}>
             <button
               type="button"
@@ -1346,7 +1417,13 @@ export default function ProfilePage() {
             </button>
             <button
               type="button"
-              onClick={() => deleteSavedQuestionNotes(item.savedQuestion)}
+              onClick={() =>
+                setDeleteTarget({
+                  kind: "personal-note-group",
+                  count: item.entries.length,
+                  savedQuestion: item.savedQuestion,
+                })
+              }
               aria-label="내 고찰 전체 삭제"
               className="flex h-[15px] w-[15px] shrink-0 items-center justify-center text-[#d2ad7c]/42 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none"
             >
@@ -1383,7 +1460,13 @@ export default function ProfilePage() {
                 </p>
                 <button
                   type="button"
-                  onClick={() => deleteSavedQuestionNote(item.savedQuestion, entry.id)}
+                  onClick={() =>
+                    setDeleteTarget({
+                      kind: "personal-note",
+                      entryId: entry.id,
+                      savedQuestion: item.savedQuestion,
+                    })
+                  }
                   aria-label="내 고찰 삭제"
                   className="flex h-7 w-7 shrink-0 items-center justify-center text-[#d2ad7c]/42 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none"
                 >
@@ -1573,7 +1656,11 @@ export default function ProfilePage() {
               ) : history.length === 0 ? (
                 <EmptyState text="아직 생성 히스토리가 없습니다." />
               ) : (
-                history.map((item) => (
+                history.map((item) => {
+                  const sourceTitle = getHistoryTitle(item.source, sourceTitleOverrides)
+                  const sourceUrl = getSourceUrl(item.source)
+
+                  return (
                   <article
                     key={item.id}
                     className="border border-[#d9ad73]/18 bg-[#120b07]/55 p-5 shadow-[0_18px_50px_rgba(13,8,5,0.34)] backdrop-blur-xl"
@@ -1581,8 +1668,9 @@ export default function ProfilePage() {
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-lg font-medium leading-none text-[#f5dfbd]/86 [overflow-wrap:anywhere] [word-break:keep-all]">
-                          {getHistoryTitle(item.source, sourceTitleOverrides)}
+                          {sourceTitle}
                         </p>
+                        {sourceUrl && <SourceLink href={sourceUrl} />}
                       </div>
                       <div className="flex shrink-0 items-start gap-3">
                         <time className="font-mono text-[10px] leading-none text-[#f5dfbd]/32">
@@ -1591,7 +1679,13 @@ export default function ProfilePage() {
                         <DeleteButton
                           compact
                           label="히스토리 삭제"
-                          onClick={() => deleteHistory(item.id)}
+                          onClick={() =>
+                            setDeleteTarget({
+                              kind: "history",
+                              id: item.id,
+                              title: sourceTitle,
+                            })
+                          }
                         />
                       </div>
                     </div>
@@ -1638,7 +1732,8 @@ export default function ProfilePage() {
                       </>
                     )}
                   </article>
-                ))
+                  )
+                })
               )}
             </div>
           )}
@@ -1712,6 +1807,11 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
+      <ProfileDeleteConfirmModal
+        target={deleteTarget}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={confirmProfileDelete}
+      />
     </main>
   )
 }
@@ -1728,6 +1828,90 @@ function LoadingState({ text }: { text: string }) {
   return (
     <div className="border border-[#d9ad73]/15 bg-[#f5dfbd]/[0.04] p-8 text-center" aria-live="polite">
       <p className="text-sm font-medium text-[#f5dfbd]/54">{text}</p>
+    </div>
+  )
+}
+
+function SourceLink({ href }: { href: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="mt-2 block max-w-full truncate font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-[#d2ad7c]/42 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
+    >
+      원본 링크
+    </a>
+  )
+}
+
+function ProfileDeleteConfirmModal({
+  onCancel,
+  onConfirm,
+  target,
+}: {
+  onCancel: () => void
+  onConfirm: () => void
+  target: ProfileDeleteTarget | null
+}) {
+  if (!target) return null
+
+  const title =
+    target.kind === "history"
+      ? "히스토리 삭제"
+      : target.kind === "saved-question"
+        ? "저장한 질문 삭제"
+        : target.kind === "personal-note-group"
+          ? "내 고찰 전체 삭제"
+          : "내 고찰 삭제"
+  const message =
+    target.kind === "history"
+      ? "이 히스토리를 삭제하면 생성된 요약과 질문 기록이 사라집니다. 정말 삭제하시겠습니까?"
+      : target.kind === "saved-question"
+        ? "이 저장한 질문을 삭제하면 연결된 타인의 고찰과 내 고찰도 함께 사라집니다. 정말 삭제하시겠습니까?"
+        : target.kind === "personal-note-group"
+          ? `삭제 시 이 질문에 남긴 ${target.count}개의 내 고찰이 모두 사라집니다. 정말 삭제하시겠습니까?`
+          : "이 고찰을 정말 삭제하시겠습니까?"
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#080403]/70 px-5 backdrop-blur-md"
+      role="presentation"
+      onClick={onCancel}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profile-delete-confirm-title"
+        className="w-full max-w-sm border border-[#d9ad73]/24 bg-[#120b07]/95 p-6 shadow-[0_24px_80px_rgba(13,8,5,0.72)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <p
+          id="profile-delete-confirm-title"
+          className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2ad7c]/55"
+        >
+          {title}
+        </p>
+        <p className="mt-4 text-sm font-medium leading-[1.75] text-[#f5dfbd]/72 [word-break:keep-all]">
+          {message}
+        </p>
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="border border-[#d9ad73]/18 bg-[#f5dfbd]/[0.04] px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#f5dfbd]/46 transition-colors duration-300 hover:text-[#f5dfbd]/72 focus:outline-none"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="border border-[#d9ad73]/30 bg-[#8d4f31]/18 px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#efd3a2]/78 transition-colors duration-300 hover:border-[#efd3a2]/52 hover:bg-[#8d4f31]/28 hover:text-[#fff4dc] focus:outline-none"
+          >
+            삭제
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

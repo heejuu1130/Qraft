@@ -366,6 +366,7 @@ Content rules:
 - When only YouTube title/channel is available: generate from the title's theme. Never write "영상을 확인할 수 없습니다" or similar disclaimers. Never add facts (instruments, intent, character relations) not in the title.
 - Don't output URLs, source metadata, or labels like "Title:", "URL:", "Markdown Content:".
 - Qraft internal knowledge base (when provided): use as internal standard, not search results. Focus on service value, user transformation, and the role of questions and reflections.
+- If the user input combines a proper noun with a work/media type such as "드라마", "영화", "책", "소설", "웹툰", or "앨범", keep that type as a disambiguation anchor. Treat "골드랜드 드라마" as the drama named "골드랜드", not general information about "골드랜드".
 
 When search reference content is provided (검색 기반 참고 내용):
 - Use only confirmed content from the reference. Ignore noise and unrelated content.
@@ -373,6 +374,7 @@ When search reference content is provided (검색 기반 참고 내용):
 - Don't assert fast-changing figures precisely — use conservative phrasing: "최근 성적", "검색 시점 기준", "상위권".
 - Keep only 2–3 confirmed facts that create the core tension. Don't list facts at length.
 - Questions based on search content ask about the user's perspective — not future predictions or fact confirmations.
+- If the user provided a work/media type, summarize the matched work's platform, cast/creator, premise, release context, or genre only when they are confirmed by the reference. Do not drift into the title word's place, brand, or generic meaning.
 
 Short topic without search reference:
 - Treat as conceptual. Never add real people, events, backgrounds, authors, years, affiliations, or stats.
@@ -417,6 +419,7 @@ route 기준:
 판단 규칙:
 - "물리적 공간의 상실", "AI 시대의 인간성"처럼 개념 수식어가 붙은 주제는 실존 대상이 아니라 abstract_topic입니다.
 - "참을 수 없는 존재의 가벼움"처럼 문학 작품명, 영화명, 책 제목으로 널리 알려진 고유 제목이 단독으로 들어오면 factual_topic입니다.
+- "골드랜드 드라마", "파묘 영화", "삼체 소설"처럼 고유명사와 매체/작품 유형이 함께 들어오면 해당 작품 정보가 핵심인 factual_topic입니다. 매체/작품 유형은 검색 질의의 일부로 유지합니다.
 - 같은 문구라도 사용자가 관계, 상실, 인간성, 의미, 태도처럼 개념적 화두로 확장해 입력한 경우에는 abstract_topic입니다.
 - 특정 사람/회사/영화/책/제품/장소의 실제 정보가 핵심이면 factual_topic입니다.
 - 최신성이나 외부 확인이 핵심이면 current_fact 또는 external_reference입니다.
@@ -1496,6 +1499,55 @@ function mergeRouterDecision(
   }
 }
 
+const workTypeFocusDefinitions = [
+  {
+    label: "드라마/시리즈",
+    pattern: /(?:^|[\s,，.。?？!！:：·-])(?:드라마|시리즈|애니메이션|애니)(?=$|[\s,，.。?？!！:：·-])/i,
+  },
+  { label: "영화", pattern: /(?:^|[\s,，.。?？!！:：·-])(?:영화|무비|극장판)(?=$|[\s,，.。?？!！:：·-])/i },
+  { label: "책/문학 작품", pattern: /(?:^|[\s,，.。?？!！:：·-])(?:책|도서|소설|에세이|시집)(?=$|[\s,，.。?？!！:：·-])/i },
+  { label: "웹툰/만화", pattern: /(?:^|[\s,，.。?？!！:：·-])(?:웹툰|만화)(?=$|[\s,，.。?？!！:：·-])/i },
+  { label: "음악 작품", pattern: /(?:^|[\s,，.。?？!！:：·-])(?:앨범|노래|싱글|ost)(?=$|[\s,，.。?？!！:：·-])/i },
+] as const
+
+const workTypeMarkerPattern =
+  /(?:드라마|시리즈|애니메이션|애니|영화|무비|극장판|책|도서|소설|에세이|시집|웹툰|만화|앨범|노래|싱글|ost)/gi
+
+const workTypeIntentMarkerPattern =
+  /(?:기본\s*정보|출연진|등장인물|줄거리|결말|공개일|오픈일|몇\s*부작|감독|작가|원작|후기|리뷰|추천|정보|예고편|시즌)/gi
+
+function getWorkTypeFocus(source: string) {
+  const raw = source.trim()
+  const definition = workTypeFocusDefinitions.find(({ pattern }) => pattern.test(raw))
+
+  if (!definition) return null
+
+  const title = raw
+    .replace(workTypeMarkerPattern, " ")
+    .replace(workTypeIntentMarkerPattern, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  if (!/[\p{L}\p{N}]{2,}/u.test(title)) return null
+
+  return {
+    label: definition.label,
+    title,
+  }
+}
+
+function getWorkTypeFocusInstruction(source: string) {
+  const focus = getWorkTypeFocus(source)
+
+  if (!focus) return ""
+
+  return [
+    `대상 고정: 사용자 입력은 "${focus.title}"라는 ${focus.label} 작품을 찾으려는 요청입니다.`,
+    `"${focus.title}" 단독의 장소, 브랜드, 일반 단어 정보가 아니라 ${focus.label} 작품 정보를 우선하세요.`,
+    `검색과 요약에서 "${source.trim()}"의 핵심 단어를 모두 유지하세요.`,
+  ].join(" ")
+}
+
 // Keep this deterministic. A model-based classifier would add another slow call before generation.
 function getTopicGroundingDecision(source: string): TopicGroundingDecision {
   const raw = source.trim()
@@ -1554,6 +1606,7 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
     !["의미", "상실", "관계", "감정", "철학", "인간성", "정체성"].some((ending) => value.endsWith(ending)) &&
     /(?:\b수\b|없는|있는|그리고|에게|으로|처럼|의)/.test(value)
   const hasMixedEntitySignal = /[가-힣][a-z0-9]|[a-z0-9][가-힣]/i.test(value)
+  const workTypeFocus = getWorkTypeFocus(raw)
   const hasEntityWithConcept =
     words.length >= 2 &&
     words.length <= 5 &&
@@ -1580,6 +1633,7 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
 
   if (!value) return withSemanticScores({ reason: "empty", useWebSearch: false })
   if (isQraftKnowledgeQuery(raw)) return withSemanticScores({ reason: "qraft_knowledge_base", useWebSearch: false })
+  if (workTypeFocus) return withSemanticScores({ reason: "named_work_marker", useWebSearch: true })
   if (hasTemporalOrNumericSignal) return withSemanticScores({ reason: "numbers_or_dates", useWebSearch: true })
   if (hasExternalReferenceKeyword) return withSemanticScores({ reason: "external_reference", useWebSearch: true })
   if (hasNamedWorkMarker) return withSemanticScores({ reason: "named_work_marker", useWebSearch: true })
@@ -1745,6 +1799,7 @@ async function fetchGeminiGroundedSummary(
   if (!apiKey) return ""
 
   const model = getGeminiGroundingModel()
+  const workTypeFocusInstruction = getWorkTypeFocusInstruction(source)
 
   try {
     const response = await fetch(
@@ -1760,7 +1815,16 @@ async function fetchGeminiGroundedSummary(
             {
               parts: [
                 {
-                  text: `"${source}"에 대해 웹 검색으로 확인되는 핵심 사실을 1500자 이내로 요약하세요. 실존 인물, 소속, 직책, 작품명, 출시일처럼 안정적으로 확인되는 사실을 중심으로 작성하세요. 자주 바뀌는 수치나 순위는 "최근 기준", "상위권" 등 보수적으로 표현하세요. 요약만 출력하세요.`,
+                  text: [
+                    `"${source}"에 대해 웹 검색으로 확인되는 핵심 사실을 1500자 이내로 요약하세요.`,
+                    "검색할 때는 사용자 원문의 핵심 단어를 모두 유지하고, 동명이의어가 있으면 사용자가 붙인 유형 단어로 대상을 좁히세요.",
+                    workTypeFocusInstruction,
+                    "실존 인물, 소속, 직책, 작품명, 출시일처럼 안정적으로 확인되는 사실을 중심으로 작성하세요.",
+                    "자주 바뀌는 수치나 순위는 \"최근 기준\", \"상위권\" 등 보수적으로 표현하세요.",
+                    "요약만 출력하세요.",
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
                 },
               ],
             },
@@ -1970,6 +2034,7 @@ function buildModelInput({
           ? "짧은 주제"
           : "긴 텍스트"
   const usableContent = content.trim().slice(0, contentCharacterLimit)
+  const topicFocusInstruction = sourceKind === "topic" ? getWorkTypeFocusInstruction(source) : ""
   const contentGuide =
     sourceKind === "topic"
       ? forceWebSearch
@@ -1981,7 +2046,9 @@ function buildModelInput({
             "검색 결과로 확인되지 않은 이력, 소속, 기록, 수치, 평가를 추가하지 마세요.",
             "summary는 기본 형식을 유지하고, questions/reflections까지 반드시 완성된 JSON 객체 하나만 반환하세요.",
             "마크다운 코드블록, 인사말, 설명 문장은 절대 쓰지 마세요.",
-          ].join(" ")
+          ]
+            .filter(Boolean)
+            .join(" ")
         : "참고 내용: 개념형 주제입니다. 실존 인물, 사건, 작품 배경, 저자, 연도, 소속, 수치 같은 사실을 덧붙이지 말고 입력어 자체가 품은 관점과 긴장만 다루세요."
       : "참고 내용: 충분히 확보되지 않았습니다. 사용자 원문에서 확인할 수 있는 범위를 넘어서 단정하지 마세요."
   const resolvedContentLabel = qraftKnowledgeReference
@@ -1993,10 +2060,13 @@ function buildModelInput({
   return [
     `입력 유형: ${sourceLabel}`,
     `사용자 원문:\n${source}`,
+    topicFocusInstruction,
     resolved && usableContent && usableContent !== source
       ? `${resolvedContentLabel}:\n${usableContent}`
       : contentGuide,
-  ].join("\n\n")
+  ]
+    .filter(Boolean)
+    .join("\n\n")
 }
 
 async function generateTopicRawWithoutWebSearch(source: string, tokenUsage?: TokenUsageAccumulator) {

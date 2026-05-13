@@ -316,7 +316,7 @@ const QUESTION_DESIGN_RULES = `Question design rules (all questions must be writ
 - Anchor to a core noun, choice, tension, or perspective difference — don't let questions drift into generic life questions.
 - Avoid all-purpose questions like "왜 중요한가요?", "어떤 의미가 있나요?", "우리는 어떤 태도를 가져야 할까요?".
 - No yes/no questions, definition questions, or simple fact-check questions.
-- Never use "이 영상", "이 글", "이 인터뷰" in questions.
+- Never use "이 영상", "이 글", "이 인터뷰", "이 드라마", "이 영화", "이 책", "이 콘텐츠" in questions.
 - For short topic input only: focus on specific tensions, choices, or perspective differences in the topic — don't drift into generic life questions.
 - Q1: Easy but not trivial. User can start answering immediately while entering the core tension. Ask about a criterion to distinguish, a position to take, or an easily missed moment — not preferences, impressions, or personal anecdotes.
 - Q2: Core issue. Ask about a presupposition, conflict, cost, or criterion clash within the subject.
@@ -369,12 +369,12 @@ Content rules:
 - If the user input combines a proper noun with a work/media type such as "드라마", "영화", "책", "소설", "웹툰", or "앨범", keep that type as a disambiguation anchor. Treat "골드랜드 드라마" as the drama named "골드랜드", not general information about "골드랜드".
 
 When search reference content is provided (검색 기반 참고 내용):
+- First sentence of summary: state who or what the subject is (name, role, team, work title) using only confirmed content.
 - Use only confirmed content from the reference. Ignore noise and unrelated content.
-- For factual subjects: identify subject first, use only stably confirmed facts (affiliation, role, work name, release date).
-- Don't assert fast-changing figures precisely — use conservative phrasing: "최근 성적", "검색 시점 기준", "상위권".
+- Use only stably confirmed facts (affiliation, role, work name, release date, team record). Don't assert fast-changing figures precisely — use conservative phrasing: "최근 성적", "검색 시점 기준", "상위권".
 - Keep only 2–3 confirmed facts that create the core tension. Don't list facts at length.
-- Questions based on search content anchor to a specific fact, tension, or decision found in the reference — not vague impressions or generic life questions.
-- If the user provided a work/media type, summarize the matched work's platform, cast/creator, premise, release context, or genre only when they are confirmed by the reference. Do not drift into the title word's place, brand, or generic meaning.
+- Questions anchor to a specific fact, decision, or tension from the reference — not vague impressions or generic life questions.
+- If the user provided a work/media type, use only the matched work's confirmed details (cast, premise, platform, release). Don't drift to the homonym place, brand, or concept.
 
 When search was attempted but no reference content was retrieved (검색 시도 후 참고 내용 없음):
 - The input likely refers to a real person, team, work, or brand — treat it as a factual subject, not an abstract concept.
@@ -416,17 +416,18 @@ const GEMINI_ROUTER_PROMPT = `당신은 Qraft의 초고속 라우터입니다.
 
 route 기준:
 - abstract_topic: 철학, 감정, 관계, 사회 현상, 기술의 의미, 자아, 예술, 삶의 태도처럼 외부 사실보다 사유가 중심인 주제
-- factual_topic: 실존 인물, 작품, 기업, 브랜드, 제품, 장소, 사건처럼 실제 정보 확인이 필요한 주제
+- factual_topic: 실존 인물, 스포츠 팀/선수, 아이돌/가수/배우, 드라마/영화/책 제목, 기업, 브랜드, 제품, 장소, 사건처럼 실제 정보 확인이 필요한 주제
 - current_fact: 최근, 오늘, 올해, 가격, 순위, 정책, 뉴스, 변동성 있는 사실이 중요한 주제
 - external_reference: 사용자가 정보, 추천, 비교, 출처, 검색, 누구인지 등을 요구하는 주제
 - unclear: 확신이 낮은 주제
 
 판단 규칙:
 - "물리적 공간의 상실", "AI 시대의 인간성"처럼 개념 수식어가 붙은 주제는 실존 대상이 아니라 abstract_topic입니다.
-- "참을 수 없는 존재의 가벼움"처럼 문학 작품명, 영화명, 책 제목으로 널리 알려진 고유 제목이 단독으로 들어오면 factual_topic입니다.
-- "골드랜드 드라마", "파묘 영화", "삼체 소설"처럼 고유명사와 매체/작품 유형이 함께 들어오면 해당 작품 정보가 핵심인 factual_topic입니다. 매체/작품 유형은 검색 질의의 일부로 유지합니다.
+- "기아 타이거즈", "손흥민", "뉴진스", "BTS"처럼 특정 팀·선수·아티스트 이름은 factual_topic입니다.
+- "참을 수 없는 존재의 가벼움", "이상한 변호사 우영우"처럼 작품명으로 알려진 고유 제목은 factual_topic입니다.
+- "골드랜드 드라마", "파묘 영화", "삼체 소설"처럼 고유명사와 매체/작품 유형이 함께 들어오면 factual_topic입니다.
+- "21세기 대군부인"처럼 드라마·소설·영화 제목처럼 보이는 고유 명사 구는 factual_topic입니다.
 - 같은 문구라도 사용자가 관계, 상실, 인간성, 의미, 태도처럼 개념적 화두로 확장해 입력한 경우에는 abstract_topic입니다.
-- 특정 사람/회사/영화/책/제품/장소의 실제 정보가 핵심이면 factual_topic입니다.
 - 최신성이나 외부 확인이 핵심이면 current_fact 또는 external_reference입니다.
 - 반드시 JSON 객체 하나만 반환합니다.
 - JSON 형식: {"route":"abstract_topic|factual_topic|current_fact|external_reference|unclear","needs_grounding":true,"confidence":0.0,"rationale":"짧은 이유"}`
@@ -1664,18 +1665,6 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
   return withSemanticScores({ reason: "concept", useWebSearch: false })
 }
 
-function shouldUseGeminiRouter(source: string, localDecision: TopicGroundingDecision) {
-  const value = source.trim()
-
-  if (!value || value.length >= 80) return false
-
-  return [
-    "abstract_concept",
-    "concept",
-    "semantic_abstract_prototype",
-    "semantic_factual_prototype",
-  ].includes(localDecision.reason)
-}
 
 function normalizeGeminiRouterDecision(parsed: unknown): GeminiRouterDecision | null {
   if (!parsed || typeof parsed !== "object") return null
@@ -1971,14 +1960,19 @@ async function fetchGeminiRouterDecision(
 async function resolveTopicGroundingDecision(source: string, tokenUsage?: TokenUsageAccumulator) {
   const localDecision = getTopicGroundingDecision(source)
 
-  if (!shouldUseGeminiRouter(source, localDecision)) {
+  // Fast-path: definitive local decisions that don't benefit from Gemini Router
+  if (
+    localDecision.reason === "empty" ||
+    localDecision.reason === "qraft_knowledge_base" ||
+    source.trim().length >= 80
+  ) {
     return localDecision
   }
 
   try {
     const routerDecision = await fetchGeminiRouterDecision(source, tokenUsage)
 
-    if (!routerDecision || routerDecision.confidence < 0.68 || routerDecision.route === "unclear") {
+    if (!routerDecision || routerDecision.confidence < 0.65 || routerDecision.route === "unclear") {
       return localDecision
     }
 

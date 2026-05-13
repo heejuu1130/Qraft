@@ -39,14 +39,16 @@ body {
 .qraft-landing-dust-grain {
   display: inline-block;
   opacity: 0;
+  filter: blur(1.15px);
   transform: translate3d(var(--dx, -22px), var(--dy, 10px), 0) scale(var(--scale, 0.988));
-  animation: qraft-dust-reveal 1600ms cubic-bezier(0.16, 1, 0.3, 1) var(--delay, 0ms) both;
+  animation: qraft-dust-reveal 2200ms cubic-bezier(0.16, 1, 0.3, 1) var(--delay, 0ms) both;
 }
 
 .qraft-landing-dust-grain-soft {
+  filter: blur(4px);
   transform: translate3d(var(--dx, 0.018em), var(--dy, -0.012em), 0) scale(var(--scale, 1.002));
   animation-name: qraft-soft-dust-reveal;
-  animation-duration: 1300ms;
+  animation-duration: 1800ms;
 }
 
 .qraft-landing-dust-space {
@@ -316,15 +318,18 @@ body {
 @keyframes qraft-dust-reveal {
   0% {
     opacity: 0;
+    filter: blur(1.15px);
     transform: translate3d(var(--dx, -22px), var(--dy, 10px), 0) scale(var(--scale, 0.988));
   }
 
   56% {
     opacity: 0.72;
+    filter: blur(0.35px);
   }
 
   100% {
     opacity: 1;
+    filter: blur(0);
     transform: translate3d(0, 0, 0) scale(1);
   }
 }
@@ -332,26 +337,31 @@ body {
 @keyframes qraft-soft-dust-reveal {
   0% {
     opacity: 0;
+    filter: blur(4px);
     transform: translate3d(var(--dx, 0.018em), var(--dy, -0.012em), 0) scale(var(--scale, 1.002));
   }
 
   52% {
     opacity: 0.58;
+    filter: blur(1.4px);
   }
 
   100% {
     opacity: 1;
+    filter: blur(0);
     transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
 @keyframes qraft-form-arrive {
   0% {
+    filter: blur(10px);
     opacity: 0;
     transform: translateY(14px);
   }
 
   100% {
+    filter: blur(0);
     opacity: 1;
     transform: translateY(0);
   }

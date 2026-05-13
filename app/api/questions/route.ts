@@ -1784,7 +1784,7 @@ function getGeminiPreSummarizeModel() {
 }
 
 function getGeminiGroundingModel() {
-  return process.env.GEMINI_GROUNDING_MODEL?.trim() || "gemini-2.0-flash"
+  return process.env.GEMINI_GROUNDING_MODEL?.trim() || "gemini-2.5-flash"
 }
 
 async function fetchGeminiGroundedSummary(

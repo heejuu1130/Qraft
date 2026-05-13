@@ -1262,6 +1262,14 @@ export default function ProfilePage() {
       sharingNoteIds.has(getPersonalNoteCardId(item.savedQuestion.id, entry.id))
     )
     const summaryOpen = openNoteSummaryIds.has(item.id)
+    const shareButtonLabel = isSharing ? (isShared ? "취소 중" : "공유 중") : isShared ? "공유됨" : "공유"
+    const shareButtonAriaLabel = isSharing
+      ? isShared
+        ? "커뮤니티 공유 취소 중"
+        : "커뮤니티 공유 중"
+      : isShared
+        ? "커뮤니티 공유 취소"
+        : "커뮤니티에 공유"
 
     return (
       <article
@@ -1295,13 +1303,14 @@ export default function ProfilePage() {
                 void sharePersonalNoteCard(item.savedQuestion)
               }}
               disabled={isSharing}
-              aria-label={isShared ? "커뮤니티 공유 취소" : "커뮤니티에 공유"}
+              aria-busy={isSharing}
+              aria-label={shareButtonAriaLabel}
               style={{
                 paddingLeft: isShared ? 9 : 11,
                 paddingRight: isShared ? 7 : 5,
                 transform: "translateY(-4px)",
               }}
-              className={`flex h-[18px] items-center rounded-full border font-mono text-[11px] font-medium uppercase leading-none tracking-[0.1em] transition-colors duration-300 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${
+              className={`flex h-[18px] min-w-[48px] items-center justify-center rounded-full border font-mono text-[11px] font-medium uppercase leading-none tracking-[0.1em] transition-colors duration-300 focus:outline-none disabled:cursor-wait disabled:opacity-70 ${
                 isShared
                   ? "border-[#8d4f31]/46 bg-[#8d4f31]/18 text-[#efd3a2]/88 hover:border-[#d9ad73]/60 hover:bg-[#8d4f31]/28 hover:text-[#fff4dc]"
                   : "border-transparent text-[#d2ad7c]/42 hover:text-[#f5dfbd]/78"
@@ -1314,7 +1323,7 @@ export default function ProfilePage() {
                   <path d="M17.5 9.5C18.88 9.5 20 8.38 20 7C20 5.62 18.88 4.5 17.5 4.5C16.12 4.5 15 5.62 15 7C15 8.38 16.12 9.5 17.5 9.5Z" stroke="currentColor" strokeWidth="1.7" />
                   <path d="M17.5 19.5C18.88 19.5 20 18.38 20 17C20 15.62 18.88 14.5 17.5 14.5C16.12 14.5 15 15.62 15 17C15 18.38 16.12 19.5 17.5 19.5Z" stroke="currentColor" strokeWidth="1.7" />
                 </svg>
-                <span>{isShared ? "공유됨" : "공유"}</span>
+                <span>{shareButtonLabel}</span>
               </span>
             </button>
             <button

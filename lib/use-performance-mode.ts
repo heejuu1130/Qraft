@@ -15,7 +15,7 @@ type NavigatorPerformanceSignals = Navigator & {
   }
 }
 
-const SHADER_MODE_SESSION_KEY = "qraft_shader_mode_v4"
+const SHADER_MODE_SESSION_KEY = "qraft_shader_mode_v5"
 const SHADER_MODE_OVERRIDE_PARAM = "qraft_bg"
 const FPS_SAMPLE_DURATION_MS = 900
 const CHROMIUM_FPS_SAMPLE_DURATION_MS = 1400
@@ -112,7 +112,7 @@ export function usePerformanceMode() {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
   const [compactTouchViewport, setCompactTouchViewport] = useState(false)
   const [constrainedDevice, setConstrainedDevice] = useState(false)
-  const [measuredMotionMode, setMeasuredMotionMode] = useState<BackgroundMotionMode>("reduced")
+  const [measuredMotionMode, setMeasuredMotionMode] = useState<BackgroundMotionMode>("frozen")
 
   useEffect(() => {
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -140,7 +140,7 @@ export function usePerformanceMode() {
             ? currentMode
             : "warming"
         }
-        return cachedMode ?? "reduced"
+        return cachedMode ?? currentMode
       })
     }
     const queueSignalSync = () => {
@@ -169,11 +169,11 @@ export function usePerformanceMode() {
     }
   }, [])
 
-  // Runtime FPS measurement starts from the reduced shader, then upgrades it
-  // or freezes that rendered shader frame for the rest of the session.
+  // Runtime FPS measurement starts from a still background, then enables motion
+  // only when the browser proves it has enough headroom.
   useEffect(() => {
     if (!pageVisible || prefersReducedMotion || constrainedDevice) return
-    if (measuredMotionMode !== "reduced") return
+    if (measuredMotionMode !== "frozen" && measuredMotionMode !== "reduced") return
     if (readShaderModeOverride() !== null) return
     if (readShaderModeCache() !== null) return
 
@@ -249,7 +249,7 @@ export function usePerformanceMode() {
       pauseCssMotion: !pageVisible || prefersReducedMotion,
       prefersReducedMotion,
       reduceShaderLoad: backgroundMotionMode !== "full",
-      renderShader: pageVisible,
+      renderShader: pageVisible && backgroundMotionMode !== "frozen",
     }),
     [backgroundMotionMode, compactTouchViewport, constrainedDevice, pageVisible, prefersReducedMotion]
   )

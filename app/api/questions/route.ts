@@ -31,7 +31,7 @@ const cacheCurrentFactTtlMs = 36 * 60 * 60 * 1000
 const cacheFactualTopicTtlMs = 7 * 24 * 60 * 60 * 1000
 const cacheTopicTtlMs = 30 * 24 * 60 * 60 * 1000
 const cacheLinkTtlMs = 60 * 24 * 60 * 60 * 1000
-const questionCacheVersion = "v8"
+const questionCacheVersion = "v9"
 const qraftServiceKnowledgeVersion = "qraft_service_v1"
 const tokenStrategyVersion = process.env.QRAFT_TOKEN_STRATEGY_VERSION?.trim() || "usage_v1"
 const tokenEventColumnNames = [
@@ -353,8 +353,8 @@ Return exactly one JSON object and nothing else:
 Never return a questions array alone. No markdown, no explanation.
 
 Summary format (write in Korean):
-- 5–6 lines total. First 3 are standalone core sentences (no bullets or numbers).
-- After a blank line, lines 4–6 are structured:
+- Always write exactly 3 standalone core sentences first (no bullets or numbers). Each sentence is its own line. Never merge two sentences into one line.
+- After a blank line, write lines 4–6 structured as:
   1. 쟁점: 한 문장
   2. 변화: 한 문장
   3. 생각할 점: 한 문장
@@ -373,9 +373,11 @@ Content rules:
 
 When search reference content is provided (검색 기반 참고 내용):
 - First sentence of summary: state who or what the subject is (name, role, team, work title) using the most concrete confirmed fact — current position, record, or premise.
+- Numerical data (sports records, vote counts, rankings, scores, financial figures) must be reproduced in full exactly as found. Never drop any component: if the reference says 18승 1무 20패, all three must appear. Omitting losses to make a record look better, or dropping any part of a multi-component figure, is fabrication.
+- Never paraphrase, round, or selectively report numbers. Copy them as-is from the reference.
 - Use specific confirmed data from the reference as-is — figures, dates, rankings, scores. Do not hedge or soften confirmed grounding data.
 - For works (drama, film, novel, webtoon): use actual plot, setting, cast, platform from the reference. Never interpret the title alone.
-- Keep the 2–3 most tension-generating facts. Don't list facts at length.
+- Select the 2–3 most tension-generating facts to anchor the 3 core sentences. This is about which facts to choose, not how many sentences to write — always write exactly 3 core sentences.
 - Questions anchor to a specific fact, decision, or tension from the reference — not vague impressions or generic life questions.
 - If the user provided a work/media type, use only the matched work's confirmed details (cast, premise, platform, release). Don't drift to the homonym place, brand, or concept.
 
@@ -1819,7 +1821,7 @@ async function fetchGeminiGroundedSummary(
                     "인물이면 현재 직위·소속·역할과 최근 주요 활동을 포함하세요.",
                     "스포츠 팀·선수이면 최근 성적, 현재 순위, 주요 경기 결과를 구체적으로 포함하세요.",
                     "작품(드라마·영화·소설·웹툰 등)이면 제목을 해석하지 말고 실제 검색 결과에서 줄거리·배경·등장인물·주요 배우·감독·플랫폼·방영 시기를 가져오세요.",
-                    "확인된 수치·날짜·순위·성적은 그대로 기재하고 검색 기준 시점을 명시하세요.",
+                    "확인된 수치·날짜·순위·성적은 구성 요소를 빠짐없이 그대로 기재하세요. 스포츠 기록은 승·무·패를 모두 포함하고, 득표율·순위·재정 수치도 원문 그대로 유지하세요. 검색 기준 시점을 명시하세요.",
                     "요약만 출력하세요. 1000자 이내.",
                   ]
                     .filter(Boolean)

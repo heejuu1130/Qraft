@@ -31,7 +31,7 @@ const cacheCurrentFactTtlMs = 36 * 60 * 60 * 1000
 const cacheFactualTopicTtlMs = 7 * 24 * 60 * 60 * 1000
 const cacheTopicTtlMs = 30 * 24 * 60 * 60 * 1000
 const cacheLinkTtlMs = 60 * 24 * 60 * 60 * 1000
-const questionCacheVersion = "v11"
+const questionCacheVersion = "v12"
 const qraftServiceKnowledgeVersion = "qraft_service_v1"
 const tokenStrategyVersion = process.env.QRAFT_TOKEN_STRATEGY_VERSION?.trim() || "usage_v1"
 const tokenEventColumnNames = [
@@ -313,16 +313,19 @@ const PERSONA = `Qraft의 브랜드 톤:
 const QUESTION_DESIGN_RULES = `Question design rules (all questions must be written in Korean):
 - Generate exactly 3 questions.
 - Ask about thinking topics raised by the content, not impressions of the content itself.
-- Specificity test: if the same question could apply to any other topic, it is too generic — rewrite it so that changing the topic would require rewriting the question entirely.
-- Anchor to a concrete noun, event, decision, or tension from the content — not a theme or vibe.
+- Each question must immediately clarify what to think about. Prioritize a sharp thinking entry point over elegant phrasing.
+- Anchor to a concrete noun, choice, tension, confirmed fact, or perspective difference from the content — don't let questions drift into generic life questions.
+- Specificity test: if the same question could apply to many unrelated topics, rewrite it with the concrete subject or tension from this input.
 - Avoid all-purpose questions like "왜 중요한가요?", "어떤 의미가 있나요?", "우리는 어떤 태도를 가져야 할까요?", "어떻게 생각하나요?".
 - No yes/no questions, definition questions, or fact-check questions. Never ask the user to confirm or recall a fact.
 - Questions must ask for the user's judgment, stance, or experience — not what the subject is, but what it means to take a position on it.
 - Never use "이 영상", "이 글", "이 인터뷰", "이 드라마", "이 영화", "이 책", "이 콘텐츠" in questions.
-- Q1: Name the specific criterion, line, or position that immediately separates how people see this topic — not what they think of it overall, but exactly where they'd draw a line or take a side.
-- Q2: Surface the assumption that, if questioned, would unsettle the most comfortable reading of this topic — the thing most people accept without noticing.
-- Q3: Open toward a domain or relationship the user hasn't connected to this topic yet — a time shift, role reversal, or scale change that reframes the whole thing.
-- Q1→Q3 deepen progressively. All three must be simple one-sentence Korean.
+- For short topic input only: focus on specific tensions, choices, or perspective differences in the topic — don't drift into generic life questions.
+- For search-grounded input: anchor each question to one confirmed fact, decision, conflict, or public role from the reference, then ask what stance or criterion the user would take.
+- Q1: Easy but not trivial. User can start answering immediately while entering the core tension. Ask about a criterion to distinguish, a position to take, or an easily missed moment — not preferences, impressions, or personal anecdotes.
+- Q2: Core issue. Ask about a presupposition, conflict, cost, or criterion clash within the subject.
+- Q3: Expansion. Ask how accepting that idea changes one's sense of self, relationships, society, or time — something to think about for a long time.
+- Q1→Q3 deepen progressively, but all three must be simple one-sentence Korean.
 - End in 존중형 (respectful) Korean appropriate to Qraft's tone.
 - Prefer open-ended endings: "~일까요?", "~할까요?", "~달라질까요?", "~있을까요?"
 - Avoid closed-feeling endings: "~인가요?", "~한가요?", "~하십니까?", "~입니까?"
@@ -353,18 +356,13 @@ Return exactly one JSON object and nothing else:
 Never return a questions array alone. No markdown, no explanation.
 
 Summary format (write in Korean):
-The summary has two mandatory parts — both are always required:
-
-Part 1 — 3 core sentences (lines 1–3):
-- Write exactly 3 sentences, each on its own line. Never merge two sentences into one line.
-- Each sentence must be a full, substantive thought — never a bare fact like "X는 Y이다" alone. Build progressively: (1) subject + key context or significance, (2) main dynamic or tension, (3) the complexity or unresolved dimension.
-
-Part 2 — structured section (after one blank line):
-- 쟁점: 1–2 sentences — the actual conflict or fault line, not a description
-- 변화: 1–2 sentences
-- 생각할 점: 1–2 sentences — end with an unresolved tension or open question, not a conclusion
-
-Never omit Part 2. Never stop after Part 1.
+- 5–6 lines total. First 3 lines are standalone core sentences, no bullets or numbers.
+- Each of the first 3 lines should be a full thought: subject + context, main tension, and unresolved dimension.
+- After a blank line, include the structured section:
+  1. 쟁점: one clear sentence about the actual conflict or fault line
+  2. 변화: one clear sentence about what changes when the context or viewpoint shifts
+  3. 생각할 점: one clear sentence ending with an unresolved tension or open question
+- Do not omit the structured section for links, search-grounded topics, factual subjects, or long text.
 - Links/long text → summarize core argument and context. Short topics → reveal the fault line or contested tension in the topic, not just describe it.
 
 Content rules:
@@ -376,7 +374,7 @@ Content rules:
 - If the user input combines a proper noun with a work/media type such as "드라마", "영화", "책", "소설", "웹툰", or "앨범", keep that type as a disambiguation anchor. Treat "골드랜드 드라마" as the drama named "골드랜드", not general information about "골드랜드".
 
 When search reference content is provided (검색 기반 참고 내용):
-- First sentence of summary: introduce the subject combining their identity with the key contextual layer from the reference — not "X는 Y이다" alone, but "X는 [context]에서 [significance]한 인물/팀/작품이다" form.
+- First sentence of summary: introduce the subject with the key contextual layer from the reference. Avoid a bare definition like "X는 Y이다" alone.
 - Numerical data (sports records, vote counts, rankings, scores, financial figures) must be reproduced in full exactly as found. Never drop any component: if the reference says 18승 1무 20패, all three must appear. Omitting losses to make a record look better, or dropping any part of a multi-component figure, is fabrication.
 - Never paraphrase, round, or selectively report numbers. Copy them as-is from the reference.
 - Use specific confirmed data from the reference as-is — figures, dates, rankings, scores. Do not hedge or soften confirmed grounding data.
@@ -389,7 +387,7 @@ When search was attempted but no reference content was retrieved (검색 시도 
 - The input likely refers to a real person, team, work, or brand — treat it as a factual subject, not an abstract concept.
 - Do not add unverified facts (stats, affiliations, cast, release dates). Work only from what the input itself implies.
 - Focus on what the subject's public role, field, and position imply — never analyze the name's etymology, word-meaning, or character composition.
-- Never output a disclaimer or state that you cannot find information. Generate the summary and questions using only what the title, genre, or name imply.
+- Do not output a refusal or generic disclaimer. Generate cautiously from the title, genre, name, or field implied by the input, without presenting missing details as facts.
 
 Short topic without search reference (개념형 주제):
 - Treat as conceptual. Never add real people, events, backgrounds, authors, years, affiliations, or stats.
@@ -1675,6 +1673,19 @@ function getTopicGroundingDecision(source: string): TopicGroundingDecision {
   return withSemanticScores({ reason: "concept", useWebSearch: false })
 }
 
+function shouldUseGeminiRouter(source: string, localDecision: TopicGroundingDecision) {
+  const value = source.trim()
+
+  if (!value || value.length >= 80) return false
+
+  return [
+    "abstract_concept",
+    "concept",
+    "semantic_abstract_prototype",
+    "semantic_factual_prototype",
+  ].includes(localDecision.reason)
+}
+
 
 function normalizeGeminiRouterDecision(parsed: unknown): GeminiRouterDecision | null {
   if (!parsed || typeof parsed !== "object") return null
@@ -1797,13 +1808,33 @@ function getGeminiGroundingModel() {
 
 async function fetchGeminiGroundedSummary(
   source: string,
-  tokenUsage?: TokenUsageAccumulator
+  tokenUsage?: TokenUsageAccumulator,
+  options: { sourceKind?: SourceKind } = {}
 ): Promise<string> {
   const apiKey = getGeminiApiKey()
   if (!apiKey) return ""
 
   const model = getGeminiGroundingModel()
   const workTypeFocusInstruction = getWorkTypeFocusInstruction(source)
+  const isUrlSource = options.sourceKind === "url" || isUrl(source)
+  const hasWorkTypeFocus = Boolean(workTypeFocusInstruction)
+  const groundingInstruction = isUrlSource
+    ? [
+        `"${source}" URL의 기사/아티클 본문을 우선 확인하여 요약하세요.`,
+        "URL 직접 확인이 어렵다면 도메인, 경로, slug 키워드로 같은 기사나 원문을 찾아 확인하세요.",
+        "뉴스·아티클이면 매체명, 제목, 핵심 사건이나 주장, 관련 인물·기관, 날짜를 중심으로 정리하세요.",
+        "URL의 도메인이나 단어 뜻만 설명하지 말고, 링크가 가리키는 글의 내용을 요약하세요.",
+      ]
+    : [
+        `"${source}"을 웹에서 검색하여 확인되는 핵심 사실을 요약하세요.`,
+        hasWorkTypeFocus
+          ? "사용자가 작품/매체 유형 단어를 붙였으면 그 유형을 최우선 기준으로 삼으세요. 같은 이름의 장소, 브랜드, 일반 개념이 더 많이 검색되어도 유형이 다른 결과로 바꾸지 마세요."
+          : "입력에 유형 단어가 없고 동명이의어가 있으면 드라마·영화·인물·아이돌·스포츠팀·기업 등 여러 가능성을 확인한 뒤 가장 직접 관련된 대상을 기준으로 요약하세요.",
+        workTypeFocusInstruction,
+        "인물이면 현재 직위·소속·역할과 최근 주요 활동을 포함하세요.",
+        "스포츠 팀·선수이면 최근 성적, 현재 순위, 주요 경기 결과를 구체적으로 포함하세요.",
+        "작품(드라마·영화·소설·웹툰 등)이면 제목을 해석하지 말고 실제 검색 결과에서 줄거리·배경·등장인물·주요 배우·감독·플랫폼·방영 시기를 가져오세요.",
+      ]
 
   try {
     const response = await fetch(
@@ -1820,12 +1851,7 @@ async function fetchGeminiGroundedSummary(
               parts: [
                 {
                   text: [
-                    `"${source}"을 웹에서 검색하여 확인되는 핵심 사실을 요약하세요.`,
-                    "동명이의어가 있으면 드라마·영화·인물·아이돌·스포츠팀·기업 등 다양한 방향으로 검색해 가장 많이 언급된 대상을 기준으로 요약하세요.",
-                    workTypeFocusInstruction,
-                    "인물이면 현재 직위·소속·역할과 최근 주요 활동을 포함하세요.",
-                    "스포츠 팀·선수이면 최근 성적, 현재 순위, 주요 경기 결과를 구체적으로 포함하세요.",
-                    "작품(드라마·영화·소설·웹툰 등)이면 제목을 해석하지 말고 실제 검색 결과에서 줄거리·배경·등장인물·주요 배우·감독·플랫폼·방영 시기를 가져오세요.",
+                    ...groundingInstruction,
                     "확인된 수치·날짜·순위·성적은 구성 요소를 빠짐없이 그대로 기재하세요. 스포츠 기록은 승·무·패를 모두 포함하고, 득표율·순위·재정 수치도 원문 그대로 유지하세요. 검색 기준 시점을 명시하세요.",
                     "검색 결과가 제한적이더라도 찾은 사실만 간략히 기술하세요. '정보를 제공할 수 없습니다', '검색 결과가 불충분합니다', '추가 정보가 필요합니다' 같은 거부 표현은 절대 쓰지 마세요.",
                     "요약만 출력하세요. 1000자 이내.",
@@ -1978,12 +2004,7 @@ async function fetchGeminiRouterDecision(
 async function resolveTopicGroundingDecision(source: string, tokenUsage?: TokenUsageAccumulator) {
   const localDecision = getTopicGroundingDecision(source)
 
-  // Fast-path: definitive local decisions that don't benefit from Gemini Router
-  if (
-    localDecision.reason === "empty" ||
-    localDecision.reason === "qraft_knowledge_base" ||
-    source.trim().length >= 80
-  ) {
+  if (!shouldUseGeminiRouter(source, localDecision)) {
     return localDecision
   }
 
@@ -2775,9 +2796,13 @@ export async function POST(request: Request) {
       const rawContent = await fetchUrlReaderContent(source)
       content = await compressContentWithGemini(rawContent, tokenUsage)
     } catch {
-      const geminiContent = await fetchGeminiGroundedSummary(source, tokenUsage)
+      responseUseWebSearch = true
+      const geminiContent = await fetchGeminiGroundedSummary(source, tokenUsage, { sourceKind })
       if (geminiContent) {
         content = geminiContent
+        useGeminiGrounding = true
+        factProvider = "gemini_web_search"
+        factGroundingStatus = "partial"
       } else {
         content = source
         contentResolved = false
@@ -2790,7 +2815,7 @@ export async function POST(request: Request) {
       content = qraftKnowledgeReference
       contentResolved = true
     } else if (forceTopicWebSearch) {
-      const geminiGrounding = await fetchGeminiGroundedSummary(source, tokenUsage)
+      const geminiGrounding = await fetchGeminiGroundedSummary(source, tokenUsage, { sourceKind })
       if (geminiGrounding) {
         content = geminiGrounding
         contentResolved = true
@@ -2815,7 +2840,9 @@ export async function POST(request: Request) {
       sourceKind,
       sourceText: source,
       topicGroundingDecision,
-      useWebSearch: forceTopicWebSearch,
+      useWebSearch: responseUseWebSearch,
+      factProvider,
+      factGroundingStatus,
       generationSuccess: false,
       latencyMs: getLatencyMs(),
       errorCode: "link_parse_failed",

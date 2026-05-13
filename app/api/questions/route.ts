@@ -312,19 +312,19 @@ const PERSONA = `Qraft의 브랜드 톤:
 const QUESTION_DESIGN_RULES = `Question design rules (all questions must be written in Korean):
 - Generate exactly 3 questions.
 - Ask about thinking topics raised by the content, not impressions of the content itself.
-- Each question must immediately clarify what to think about. Prioritize a sharp thinking entry point over elegant phrasing.
-- Anchor to a core noun, choice, tension, or perspective difference — don't let questions drift into generic life questions.
-- Avoid all-purpose questions like "왜 중요한가요?", "어떤 의미가 있나요?", "우리는 어떤 태도를 가져야 할까요?".
-- No yes/no questions, definition questions, or simple fact-check questions.
+- Specificity test: if the same question could apply to any other topic, it is too generic — rewrite it so that changing the topic would require rewriting the question entirely.
+- Anchor to a concrete noun, event, decision, or tension from the content — not a theme or vibe.
+- Avoid all-purpose questions like "왜 중요한가요?", "어떤 의미가 있나요?", "우리는 어떤 태도를 가져야 할까요?", "어떻게 생각하나요?".
+- No yes/no questions, definition questions, or fact-check questions. Never ask the user to confirm or recall a fact.
+- Questions must ask for the user's judgment, stance, or experience — not what the subject is, but what it means to take a position on it.
 - Never use "이 영상", "이 글", "이 인터뷰", "이 드라마", "이 영화", "이 책", "이 콘텐츠" in questions.
-- For short topic input only: focus on specific tensions, choices, or perspective differences in the topic — don't drift into generic life questions.
-- Q1: Easy but not trivial. User can start answering immediately while entering the core tension. Ask about a criterion to distinguish, a position to take, or an easily missed moment — not preferences, impressions, or personal anecdotes.
-- Q2: Core issue. Ask about a presupposition, conflict, cost, or criterion clash within the subject.
-- Q3: Expansion. Ask how accepting that idea changes one's sense of self, relationships, society, or time — something to think about for a long time.
-- Q1→Q3 deepen progressively, but all three must be simple one-sentence Korean.
+- Q1: Name the specific criterion, line, or position that immediately separates how people see this topic — not what they think of it overall, but exactly where they'd draw a line or take a side.
+- Q2: Surface the assumption that, if questioned, would unsettle the most comfortable reading of this topic — the thing most people accept without noticing.
+- Q3: Open toward a domain or relationship the user hasn't connected to this topic yet — a time shift, role reversal, or scale change that reframes the whole thing.
+- Q1→Q3 deepen progressively. All three must be simple one-sentence Korean.
 - End in 존중형 (respectful) Korean appropriate to Qraft's tone.
 - Prefer open-ended endings: "~일까요?", "~할까요?", "~달라질까요?", "~있을까요?"
-- Avoid closed-feeling endings: "~인가요?", "~한가요?"
+- Avoid closed-feeling endings: "~인가요?", "~한가요?", "~하십니까?", "~입니까?"
 - Never use informal endings: "~일까?", "~할까?", "~될까?", "~있을까?"
 - Avoid exam-style phrasing: "무엇인가요?", "충분히 타당한가요?"`
 
@@ -358,7 +358,9 @@ Summary format (write in Korean):
   2. 변화: 한 문장
   3. 생각할 점: 한 문장
 - Omit lines 4–6 only if input is too short to structure naturally.
-- Links/long text → summarize core argument and context. Short topics → summarize perspectives to consider.
+- Links/long text → summarize core argument and context. Short topics → reveal the fault line or contested tension in the topic, not just describe it.
+- 쟁점 line: name the actual conflict that makes this topic contested — a fault line, not a description.
+- 생각할 점 line: end with an unresolved tension or open question, not a takeaway or conclusion.
 
 Content rules:
 - Use only facts in the provided content. Never fabricate real people's history, stats, affiliations, or work titles.

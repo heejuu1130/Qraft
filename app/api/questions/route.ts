@@ -31,7 +31,7 @@ const cacheCurrentFactTtlMs = 36 * 60 * 60 * 1000
 const cacheFactualTopicTtlMs = 7 * 24 * 60 * 60 * 1000
 const cacheTopicTtlMs = 30 * 24 * 60 * 60 * 1000
 const cacheLinkTtlMs = 60 * 24 * 60 * 60 * 1000
-const questionCacheVersion = "v9"
+const questionCacheVersion = "v10"
 const qraftServiceKnowledgeVersion = "qraft_service_v1"
 const tokenStrategyVersion = process.env.QRAFT_TOKEN_STRATEGY_VERSION?.trim() || "usage_v1"
 const tokenEventColumnNames = [
@@ -359,10 +359,10 @@ Part 1 — 3 core sentences (lines 1–3):
 - Write exactly 3 sentences, each on its own line. Never merge two sentences into one line.
 - Each sentence must be a full, substantive thought — never a bare fact like "X는 Y이다" alone. Build progressively: (1) subject + key context or significance, (2) main dynamic or tension, (3) the complexity or unresolved dimension.
 
-Part 2 — structured section (lines 4–6, after one blank line):
-- 쟁점: 한 문장 — the actual conflict or fault line, not a description
-- 변화: 한 문장
-- 생각할 점: 한 문장 — end with an unresolved tension or open question, not a conclusion
+Part 2 — structured section (after one blank line):
+- 쟁점: 1–2 sentences — the actual conflict or fault line, not a description
+- 변화: 1–2 sentences
+- 생각할 점: 1–2 sentences — end with an unresolved tension or open question, not a conclusion
 
 Never omit Part 2. Never stop after Part 1.
 - Links/long text → summarize core argument and context. Short topics → reveal the fault line or contested tension in the topic, not just describe it.

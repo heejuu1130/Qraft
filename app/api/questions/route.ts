@@ -31,7 +31,7 @@ const cacheCurrentFactTtlMs = 36 * 60 * 60 * 1000
 const cacheFactualTopicTtlMs = 7 * 24 * 60 * 60 * 1000
 const cacheTopicTtlMs = 30 * 24 * 60 * 60 * 1000
 const cacheLinkTtlMs = 60 * 24 * 60 * 60 * 1000
-const questionCacheVersion = "v10"
+const questionCacheVersion = "v11"
 const qraftServiceKnowledgeVersion = "qraft_service_v1"
 const tokenStrategyVersion = process.env.QRAFT_TOKEN_STRATEGY_VERSION?.trim() || "usage_v1"
 const tokenEventColumnNames = [
@@ -388,7 +388,7 @@ When search reference content is provided (검색 기반 참고 내용):
 When search was attempted but no reference content was retrieved (검색 시도 후 참고 내용 없음):
 - The input likely refers to a real person, team, work, or brand — treat it as a factual subject, not an abstract concept.
 - Do not add unverified facts (stats, affiliations, cast, release dates). Work only from what the input itself implies.
-- Ask about the tensions, choices, or contradictions that the subject name itself suggests.
+- Focus on what the subject's public role, field, and position imply — never analyze the name's etymology, word-meaning, or character composition.
 
 Short topic without search reference (개념형 주제):
 - Treat as conceptual. Never add real people, events, backgrounds, authors, years, affiliations, or stats.

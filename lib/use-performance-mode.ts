@@ -38,12 +38,6 @@ function isConstrainedDevice() {
   )
 }
 
-function isCompactTouchViewport() {
-  if (typeof window === "undefined") return false
-
-  return window.matchMedia("(max-width: 767px), (hover: none) and (pointer: coarse)").matches
-}
-
 function isBackgroundMotionMode(value: string | null): value is BackgroundMotionMode {
   return value === "frozen" || value === "reduced" || value === "warming" || value === "enhancing" || value === "full"
 }
@@ -96,7 +90,7 @@ export function usePerformanceMode() {
       frameId = undefined
       const nextPageVisible = document.visibilityState === "visible"
       const nextPrefersReducedMotion = motionQuery.matches
-      const nextCompactTouchViewport = isCompactTouchViewport()
+      const nextCompactTouchViewport = compactViewportQuery.matches
       const nextConstrainedDevice = isConstrainedDevice()
       const overrideMode = readShaderModeOverride()
       const cachedMode = readShaderModeCache()
@@ -125,19 +119,17 @@ export function usePerformanceMode() {
       setPageVisible(document.visibilityState === "visible")
       queueSignalSync()
     }
-    const updateMotion = queueSignalSync
-    const updateCompactViewport = queueSignalSync
 
     queueSignalSync()
 
     document.addEventListener("visibilitychange", updateVisibility)
-    motionQuery.addEventListener("change", updateMotion)
-    compactViewportQuery.addEventListener("change", updateCompactViewport)
+    motionQuery.addEventListener("change", queueSignalSync)
+    compactViewportQuery.addEventListener("change", queueSignalSync)
 
     return () => {
       document.removeEventListener("visibilitychange", updateVisibility)
-      motionQuery.removeEventListener("change", updateMotion)
-      compactViewportQuery.removeEventListener("change", updateCompactViewport)
+      motionQuery.removeEventListener("change", queueSignalSync)
+      compactViewportQuery.removeEventListener("change", queueSignalSync)
       if (frameId !== undefined) window.cancelAnimationFrame(frameId)
     }
   }, [])
@@ -219,14 +211,11 @@ export function usePerformanceMode() {
   return useMemo(
     () => ({
       backgroundMotionMode,
-      compactTouchViewport,
-      constrainedDevice,
       pageVisible,
       pauseCssMotion: !pageVisible || prefersReducedMotion,
-      prefersReducedMotion,
       reduceShaderLoad: backgroundMotionMode !== "full",
       renderShader: pageVisible,
     }),
-    [backgroundMotionMode, compactTouchViewport, constrainedDevice, pageVisible, prefersReducedMotion]
+    [backgroundMotionMode, pageVisible, prefersReducedMotion]
   )
 }

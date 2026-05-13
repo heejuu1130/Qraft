@@ -10,14 +10,14 @@ const contentCharacterLimit = 8000
 const jinaReaderTimeoutMs = 12000
 const jinaReaderRetryTimeoutMs = 18000
 const jinaReaderRetryDelayMs = 650
-const geminiGroundingTimeoutMs = 10000
+const geminiGroundingTimeoutMs = 15000
 const urlGenerationMaxTokens = 1400
 const youtubeReaderTimeoutMs = 15000
 const youtubeMetadataTimeoutMs = 5000
 const youtubeReaderMinContentLength = 180
 const generationMaxTokens = 1250
 const groundedGenerationMaxTokens = 1650
-const geminiRouterTimeoutMs = 1800
+const geminiRouterTimeoutMs = 2500
 const geminiRouterMaxTokens = 160
 const geminiPreSummarizeTimeoutMs = 8000
 const compressedContentLimit = 2000
@@ -27,10 +27,11 @@ const questionRateLimitWindowMs = 60 * 60 * 1000
 const questionRateLimitMaxRequests = 30
 const questionRateLimitMaxEntries = 1000
 const cacheFreshnessTtlMs = 12 * 60 * 60 * 1000
+const cacheCurrentFactTtlMs = 36 * 60 * 60 * 1000
 const cacheFactualTopicTtlMs = 7 * 24 * 60 * 60 * 1000
 const cacheTopicTtlMs = 30 * 24 * 60 * 60 * 1000
 const cacheLinkTtlMs = 60 * 24 * 60 * 60 * 1000
-const questionCacheVersion = "v7"
+const questionCacheVersion = "v8"
 const qraftServiceKnowledgeVersion = "qraft_service_v1"
 const tokenStrategyVersion = process.env.QRAFT_TOKEN_STRATEGY_VERSION?.trim() || "usage_v1"
 const tokenEventColumnNames = [
@@ -2312,7 +2313,12 @@ function hasFreshnessSignal(source: string) {
   )
 }
 
-function getQuestionCacheExpiresAt(source: string, sourceKind: SourceKind, useWebSearch: boolean) {
+function getQuestionCacheExpiresAt(
+  source: string,
+  sourceKind: SourceKind,
+  useWebSearch: boolean,
+  isCurrentFact = false
+) {
   if (sourceKind === "text") return null
 
   const ttlMs =
@@ -2320,7 +2326,9 @@ function getQuestionCacheExpiresAt(source: string, sourceKind: SourceKind, useWe
       ? cacheFreshnessTtlMs
       : sourceKind === "topic"
         ? useWebSearch
-          ? cacheFactualTopicTtlMs
+          ? isCurrentFact
+            ? cacheCurrentFactTtlMs
+            : cacheFactualTopicTtlMs
           : cacheTopicTtlMs
         : cacheLinkTtlMs
 
@@ -2730,7 +2738,8 @@ export async function POST(request: Request) {
         : await resolveTopicGroundingDecision(source, tokenUsage)
       : null
   const forceTopicWebSearch = topicGroundingDecision?.useWebSearch ?? false
-  let cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, forceTopicWebSearch)
+  const isCurrentFact = topicGroundingDecision?.reason === "gemini_router_current_fact"
+  let cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, forceTopicWebSearch, isCurrentFact)
   let factProvider: "claude_web_search" | "gemini_web_search" | null = null
   let factGroundingStatus: "partial" | null = null
   let responseUseWebSearch = forceTopicWebSearch

@@ -279,6 +279,7 @@ export default function ProfilePage() {
   const [sharingNoteIds, setSharingNoteIds] = useState<Set<string>>(() => new Set())
   const [sourceTitleOverrides, setSourceTitleOverrides] = useState<Record<string, string>>({})
   const [profileErrorMessage, setProfileErrorMessage] = useState("")
+  const [profileDataLoading, setProfileDataLoading] = useState(true)
   const supabase = useMemo(() => createClient(), [])
   const { bgmOn, toggleBgm } = useBgm()
 
@@ -318,8 +319,11 @@ export default function ProfilePage() {
         setNoteDrafts({})
         setOpenHistoryIds(new Set())
         setProfileErrorMessage("")
+        setProfileDataLoading(false)
         return
       }
+
+      setProfileDataLoading(true)
 
       if (isLocalDevUser(user)) {
         const mappedQuestions = Object.values(readSavedQuestionMeta(user.id))
@@ -332,6 +336,7 @@ export default function ProfilePage() {
         setSavedQuestions(mappedQuestions)
         setNoteDrafts({})
         setProfileErrorMessage("")
+        setProfileDataLoading(false)
         return
       }
 
@@ -386,6 +391,7 @@ export default function ProfilePage() {
             ? "프로필 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
             : ""
         )
+        setProfileDataLoading(false)
         return
       }
     }
@@ -1550,7 +1556,9 @@ export default function ProfilePage() {
 
           {activeTab === "history" && (
             <div className="flex flex-col gap-4">
-              {history.length === 0 ? (
+              {profileDataLoading ? (
+                <LoadingState text="히스토리를 불러오고 있습니다." />
+              ) : history.length === 0 ? (
                 <EmptyState text="아직 생성 히스토리가 없습니다." />
               ) : (
                 history.map((item) => (
@@ -1625,7 +1633,9 @@ export default function ProfilePage() {
 
           {activeTab === "saved" && (
             <div className="flex flex-col gap-4">
-              {savedQuestions.length === 0 ? (
+              {profileDataLoading ? (
+                <LoadingState text="저장한 질문을 불러오고 있습니다." />
+              ) : savedQuestions.length === 0 ? (
                 <EmptyState text="아직 저장한 질문이 없습니다." />
               ) : (
                 savedQuestions.map(renderSavedQuestionCard)
@@ -1635,7 +1645,9 @@ export default function ProfilePage() {
 
           {activeTab === "notes" && (
             <div>
-              {personalNoteGroups.length === 0 ? (
+              {profileDataLoading ? (
+                <LoadingState text="내 고찰을 불러오고 있습니다." />
+              ) : personalNoteGroups.length === 0 ? (
                 <EmptyState text="아직 내 고찰이 남겨진 질문이 없습니다." />
               ) : (
                 <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2">
@@ -1696,6 +1708,14 @@ function EmptyState({ text }: { text: string }) {
   return (
     <div className="border border-[#d9ad73]/15 bg-[#f5dfbd]/[0.04] p-8 text-center">
       <p className="text-sm font-medium text-[#f5dfbd]/48">{text}</p>
+    </div>
+  )
+}
+
+function LoadingState({ text }: { text: string }) {
+  return (
+    <div className="border border-[#d9ad73]/15 bg-[#f5dfbd]/[0.04] p-8 text-center" aria-live="polite">
+      <p className="text-sm font-medium text-[#f5dfbd]/54">{text}</p>
     </div>
   )
 }

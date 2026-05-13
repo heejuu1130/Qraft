@@ -145,7 +145,7 @@ export async function GET(request: Request) {
       const title = await fetchArticleTitle(source)
 
       return NextResponse.json(
-        { displayTitle: title ? `News: ${title}` : getFallbackTitle(source) },
+        { displayTitle: title ? `Article:${title}` : getFallbackTitle(source) },
         {
           headers: {
             "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
@@ -174,7 +174,7 @@ export async function GET(request: Request) {
         : ""
 
     return NextResponse.json(
-      { displayTitle: title ? `YouTube: ${title}` : "YouTube" },
+      { displayTitle: title ? `YouTube:${title}` : "YouTube" },
       {
         headers: {
           "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",

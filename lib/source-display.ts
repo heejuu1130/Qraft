@@ -1,5 +1,9 @@
 const sourceTitleRequests = new Map<string, Promise<string | null>>()
 
+function normalizeSourceDisplayTitle(title: string) {
+  return title.replace(/^YouTube:\s+/i, "YouTube:").replace(/^News:\s*/i, "Article:")
+}
+
 export function getYouTubeVideoId(source: string) {
   try {
     const url = new URL(source)
@@ -36,7 +40,7 @@ export function isSourceTitleFetchable(source: string) {
 
 export function getSourceDisplayTitle(source: string, fetchedTitle?: string | null) {
   const title = fetchedTitle?.trim()
-  if (title) return title
+  if (title) return normalizeSourceDisplayTitle(title)
 
   try {
     const url = new URL(source)
@@ -62,7 +66,7 @@ export function fetchSourceDisplayTitle(source: string) {
       if (!payload || typeof payload !== "object") return null
 
       const title = (payload as { displayTitle?: unknown }).displayTitle
-      return typeof title === "string" && title.trim() ? title.trim() : null
+      return typeof title === "string" && title.trim() ? normalizeSourceDisplayTitle(title.trim()) : null
     })
     .catch(() => null)
 

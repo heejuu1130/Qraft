@@ -389,6 +389,7 @@ When search was attempted but no reference content was retrieved (검색 시도 
 - The input likely refers to a real person, team, work, or brand — treat it as a factual subject, not an abstract concept.
 - Do not add unverified facts (stats, affiliations, cast, release dates). Work only from what the input itself implies.
 - Focus on what the subject's public role, field, and position imply — never analyze the name's etymology, word-meaning, or character composition.
+- Never output a disclaimer or state that you cannot find information. Generate the summary and questions using only what the title, genre, or name imply.
 
 Short topic without search reference (개념형 주제):
 - Treat as conceptual. Never add real people, events, backgrounds, authors, years, affiliations, or stats.
@@ -1820,12 +1821,13 @@ async function fetchGeminiGroundedSummary(
                 {
                   text: [
                     `"${source}"을 웹에서 검색하여 확인되는 핵심 사실을 요약하세요.`,
-                    "검색할 때는 사용자 원문의 핵심 단어를 모두 유지하고, 동명이의어가 있으면 사용자가 붙인 유형 단어로 대상을 좁히세요.",
+                    "동명이의어가 있으면 드라마·영화·인물·아이돌·스포츠팀·기업 등 다양한 방향으로 검색해 가장 많이 언급된 대상을 기준으로 요약하세요.",
                     workTypeFocusInstruction,
                     "인물이면 현재 직위·소속·역할과 최근 주요 활동을 포함하세요.",
                     "스포츠 팀·선수이면 최근 성적, 현재 순위, 주요 경기 결과를 구체적으로 포함하세요.",
                     "작품(드라마·영화·소설·웹툰 등)이면 제목을 해석하지 말고 실제 검색 결과에서 줄거리·배경·등장인물·주요 배우·감독·플랫폼·방영 시기를 가져오세요.",
                     "확인된 수치·날짜·순위·성적은 구성 요소를 빠짐없이 그대로 기재하세요. 스포츠 기록은 승·무·패를 모두 포함하고, 득표율·순위·재정 수치도 원문 그대로 유지하세요. 검색 기준 시점을 명시하세요.",
+                    "검색 결과가 제한적이더라도 찾은 사실만 간략히 기술하세요. '정보를 제공할 수 없습니다', '검색 결과가 불충분합니다', '추가 정보가 필요합니다' 같은 거부 표현은 절대 쓰지 마세요.",
                     "요약만 출력하세요. 1000자 이내.",
                   ]
                     .filter(Boolean)
@@ -1848,7 +1850,12 @@ async function fetchGeminiGroundedSummary(
 
     const payload: unknown = await response.json()
     tokenUsage?.add(getGeminiTokenUsage(payload, model))
-    return getGeminiText(payload).trim()
+    const text = getGeminiText(payload).trim()
+    const isDisclaimer =
+      /정보를 제공할 수 없|검색 결과가 불충분|추가 정보가 필요|찾을 수 없습니다|확인되지 않습니다|제공하기 어렵|알 수 없습니다/.test(
+        text
+      ) && text.length < 300
+    return isDisclaimer ? "" : text
   } catch {
     return ""
   }

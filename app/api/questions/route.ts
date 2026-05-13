@@ -35,7 +35,7 @@ const cacheCurrentFactTtlMs = 36 * 60 * 60 * 1000
 const cacheFactualTopicTtlMs = 7 * 24 * 60 * 60 * 1000
 const cacheTopicTtlMs = 30 * 24 * 60 * 60 * 1000
 const cacheLinkTtlMs = 60 * 24 * 60 * 60 * 1000
-const questionCacheVersion = "v13"
+const questionCacheVersion = "v14"
 const qraftServiceKnowledgeVersion = "qraft_service_v1"
 const tokenStrategyVersion = process.env.QRAFT_TOKEN_STRATEGY_VERSION?.trim() || "usage_v1"
 const tokenEventColumnNames = [
@@ -380,6 +380,7 @@ Content rules:
 When search reference content is provided (검색 기반 참고 내용):
 - First sentence of summary: introduce the subject with the key contextual layer from the reference. Avoid a bare definition like "X는 Y이다" alone.
 - Numerical data (sports records, vote counts, rankings, scores, financial figures) must be reproduced in full exactly as found. Never drop any component: if the reference says 18승 1무 20패, all three must appear. Omitting losses to make a record look better, or dropping any part of a multi-component figure, is fabrication.
+- Do not start a sentence with an orphaned number, comparison, or fragment such as "5배인 상황에서". Every numerical sentence must name the subject and what the number compares or measures.
 - Never paraphrase, round, or selectively report numbers. Copy them as-is from the reference.
 - Use specific confirmed data from the reference as-is — figures, dates, rankings, scores. Do not hedge or soften confirmed grounding data.
 - For works (drama, film, novel, webtoon): use actual plot, setting, cast, platform from the reference. Never interpret the title alone.
@@ -2048,12 +2049,12 @@ async function fetchGeminiGroundedSummary(
     : [
         `"${source}"을 웹에서 검색하여 확인되는 핵심 사실을 요약하세요.`,
         hasWorkTypeFocus
-          ? "사용자가 작품/매체 유형 단어를 붙였으면 그 유형을 최우선 기준으로 삼으세요. 같은 이름의 장소, 브랜드, 일반 개념이 더 많이 검색되어도 유형이 다른 결과로 바꾸지 마세요."
+          ? "사용자가 작품/매체 유형 단어를 붙였으면 그 유형을 최우선 기준으로 삼으세요. 같은 이름의 장소, 브랜드, 일반 개념이 더 많이 검색되어도 유형이 다른 결과로 바꾸지 마세요. 정확한 제목만으로 정보가 얕으면 반드시 제목+줄거리, 제목+출연진, 제목+공개일, 제목+감독/작가, 영문/로마자 제목 조합까지 확인한 뒤 요약하세요. 줄거리나 출연진이 확인되면 정보 부족이라고 쓰지 마세요."
           : "입력에 유형 단어가 없고 동명이의어가 있으면 드라마·영화·인물·아이돌·스포츠팀·기업 등 여러 가능성을 확인한 뒤 가장 직접 관련된 대상을 기준으로 요약하세요.",
         workTypeFocusInstruction,
         "인물이면 현재 직위·소속·역할과 최근 주요 활동을 포함하세요.",
         "스포츠 팀·선수이면 최근 성적, 현재 순위, 주요 경기 결과를 구체적으로 포함하세요.",
-        "작품(드라마·영화·소설·웹툰 등)이면 제목을 해석하지 말고 실제 검색 결과에서 줄거리·배경·등장인물·주요 배우·감독·플랫폼·방영 시기를 가져오세요.",
+        "작품(드라마·영화·소설·웹툰 등)이면 제목을 해석하거나 줄거리를 지어내지 말고, 공식 소개나 신뢰할 수 있는 작품 정보에서 확인한 줄거리·배경·등장인물·주요 배우·감독·플랫폼·방영/개봉 시기를 가져오세요. 출처마다 회차·공개일 같은 세부 수치가 충돌하면 확실한 사실 위주로 쓰고 불확실한 수치는 단정하지 마세요.",
       ]
 
   try {
@@ -2073,6 +2074,7 @@ async function fetchGeminiGroundedSummary(
                   text: [
                     ...groundingInstruction,
                     "확인된 수치·날짜·순위·성적은 구성 요소를 빠짐없이 그대로 기재하세요. 스포츠 기록은 승·무·패를 모두 포함하고, 득표율·순위·재정 수치도 원문 그대로 유지하세요. 검색 기준 시점을 명시하세요.",
+                    "모든 문장은 주어와 맥락을 갖춘 완성문으로 쓰세요. '5배인 상황에서'처럼 무엇이 5배인지 앞부분이 사라진 숫자 조각이나 중간 문장으로 시작하지 마세요.",
                     "검색 결과가 제한적이더라도 찾은 사실만 간략히 기술하세요. '정보를 제공할 수 없습니다', '검색 결과가 불충분합니다', '추가 정보가 필요합니다' 같은 거부 표현은 절대 쓰지 마세요.",
                     "요약만 출력하세요. 1000자 이내.",
                   ]

@@ -431,7 +431,7 @@ type QuestionRequest = {
 }
 
 const LINK_PARSE_FAILURE_MESSAGE =
-  "링크의 내용을 파악하는 데 실패했습니다. 다시 시도하거나 키워드로 시작해 보시겠어요?"
+  "링크의 내용을 파악하는 데 실패했습니다. 링크를 다시 입력하거나 다른 링크로 시도해 주세요."
 const TOKEN_EXHAUSTED_CODE = "TOKEN_EXHAUSTED"
 const TOKEN_EXHAUSTED_MESSAGE =
   "토큰이 다 떨어져서 질문을 생성할 수 없습니다. 금방 관리자의 사비를 들여 채워보도록하겠습니다.."
@@ -2826,6 +2826,26 @@ export async function POST(request: Request) {
       }
     }
 
+    if (sourceKind === "url" || sourceKind === "youtube") {
+      await recordQuestionGenerationEvent({
+        mode: "generate",
+        sourceKind,
+        sourceText: source,
+        topicGroundingDecision,
+        useWebSearch: forceTopicWebSearch,
+        factProvider,
+        factGroundingStatus,
+        generationSuccess: false,
+        latencyMs: getLatencyMs(),
+        errorCode: "link_generation_failed",
+        previousQuestionCount: previousQuestions.length,
+        request,
+        tokenUsage: tokenUsage.snapshot(),
+      })
+
+      return linkParseFailureResponse()
+    }
+
     if (sourceKind !== "topic") {
       await recordQuestionGenerationEvent({
         mode: "generate",
@@ -2854,6 +2874,26 @@ export async function POST(request: Request) {
   }
 
   let { hasCompleteModelPayload, questions, reflections, summary } = parseQuestionPayload(raw)
+
+  if ((sourceKind === "url" || sourceKind === "youtube") && !hasCompleteModelPayload) {
+    await recordQuestionGenerationEvent({
+      mode: "generate",
+      sourceKind,
+      sourceText: source,
+      topicGroundingDecision,
+      useWebSearch: responseUseWebSearch,
+      factProvider,
+      factGroundingStatus,
+      generationSuccess: false,
+      latencyMs: getLatencyMs(),
+      errorCode: "link_generation_incomplete",
+      previousQuestionCount: previousQuestions.length,
+      request,
+      tokenUsage: tokenUsage.snapshot(),
+    })
+
+    return linkParseFailureResponse()
+  }
 
   if (sourceKind === "topic" && !hasCompleteModelPayload) {
     console.error("Qraft topic response was incomplete", {

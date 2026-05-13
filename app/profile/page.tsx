@@ -11,12 +11,14 @@ import { logClientError } from "@/lib/client-error"
 import { SummaryText } from "@/lib/summary-display"
 import {
   createCommunityId,
+  removeCommunityReflection,
   upsertCommunityThreadByQuestion,
   type CommunityReflectionEntry,
   type CommunityThread,
 } from "@/lib/community-reflections"
 import { isLocalDevUser } from "@/lib/local-dev-auth"
 import { normalizeQuestionEndingTone, normalizeQuestionListTone } from "@/lib/question-tone"
+import { fetchSourceDisplayTitle, getSourceDisplayTitle, isSourceTitleFetchable } from "@/lib/source-display"
 import {
   isMissingSavedQuestionColumnError,
   normalizeReflectionVisibility,
@@ -41,6 +43,12 @@ type SavedQuestion = {
   visibility: ReflectionVisibility
   savedAt: string
   sharedAt: string | null
+}
+
+type NoteShareRemovalTarget = {
+  entries: PersonalNoteEntry[]
+  question: string
+  savedQuestion: SavedQuestion
 }
 
 type QuestionHistory = {
@@ -241,14 +249,8 @@ const formatDate = (value: string) =>
     minute: "2-digit",
   }).format(new Date(value))
 
-const getHistoryTitle = (source: string) => {
-  try {
-    const url = new URL(source)
-    return url.hostname.replace(/^www\./, "")
-  } catch {
-    return source
-  }
-}
+const getHistoryTitle = (source: string, sourceTitleOverrides: Record<string, string>) =>
+  getSourceDisplayTitle(source, sourceTitleOverrides[source])
 
 const getPersonalNoteCardId = (savedQuestionId: string, entryId: string) => `${savedQuestionId}-${entryId}`
 
@@ -273,7 +275,9 @@ export default function ProfilePage() {
   const [history, setHistory] = useState<QuestionHistory[]>([])
   const [savedQuestions, setSavedQuestions] = useState<SavedQuestion[]>([])
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({})
+  const [noteShareRemovalTarget, setNoteShareRemovalTarget] = useState<NoteShareRemovalTarget | null>(null)
   const [sharingNoteIds, setSharingNoteIds] = useState<Set<string>>(() => new Set())
+  const [sourceTitleOverrides, setSourceTitleOverrides] = useState<Record<string, string>>({})
   const [profileErrorMessage, setProfileErrorMessage] = useState("")
   const supabase = useMemo(() => createClient(), [])
   const { bgmOn, toggleBgm } = useBgm()
@@ -392,6 +396,47 @@ export default function ProfilePage() {
       cancelled = true
     }
   }, [loading, supabase, user])
+
+  useEffect(() => {
+    const sources = Array.from(
+      new Set(
+        [...history.map((item) => item.source), ...savedQuestions.map((item) => item.source)]
+          .map((source) => source.trim())
+          .filter((source) => source && isSourceTitleFetchable(source) && !sourceTitleOverrides[source])
+      )
+    )
+
+    if (sources.length === 0) return
+
+    let cancelled = false
+
+    Promise.all(
+      sources.map(async (source) => ({
+        source,
+        title: await fetchSourceDisplayTitle(source),
+      }))
+    ).then((results) => {
+      if (cancelled) return
+
+      setSourceTitleOverrides((currentTitles) => {
+        const nextTitles = { ...currentTitles }
+        let changed = false
+
+        results.forEach(({ source, title }) => {
+          if (!title || nextTitles[source]) return
+
+          nextTitles[source] = title
+          changed = true
+        })
+
+        return changed ? nextTitles : currentTitles
+      })
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [history, savedQuestions, sourceTitleOverrides])
 
   const handleBgmToggle = () => {
     gtag.bgmToggle({
@@ -819,6 +864,117 @@ export default function ProfilePage() {
     await sharePersonalNoteEntries(item, readPersonalNoteEntries(item.personalNote))
   }
 
+  const requestRemovePersonalNoteShare = (item: {
+    entries: PersonalNoteEntry[]
+    question: string
+    savedQuestion: SavedQuestion
+  }) => {
+    setNoteShareRemovalTarget({
+      entries: item.entries.filter((entry) => Boolean(entry.communitySharedAt || entry.communityReflectionId)),
+      question: item.question,
+      savedQuestion: item.savedQuestion,
+    })
+  }
+
+  const removePersonalNoteShare = async () => {
+    const target = noteShareRemovalTarget
+
+    if (!target || !user) return
+
+    const entries = readPersonalNoteEntries(target.savedQuestion.personalNote)
+    const targetEntryIds = new Set(target.entries.map((entry) => entry.id))
+    const targetEntries = entries.filter(
+      (entry) => targetEntryIds.has(entry.id) && Boolean(entry.communitySharedAt || entry.communityReflectionId)
+    )
+    const noteIds = targetEntries.map((entry) => getPersonalNoteCardId(target.savedQuestion.id, entry.id))
+
+    if (targetEntries.length === 0) {
+      setNoteShareRemovalTarget(null)
+      return
+    }
+
+    setSharingNoteIds((currentIds) => new Set([...currentIds, ...noteIds]))
+
+    try {
+      if (!isLocalDevUser(user)) {
+        const remoteReflectionIds = targetEntries
+          .map((entry) => entry.communityReflectionId)
+          .filter((id): id is string => Boolean(id && !id.startsWith("local-share-")))
+
+        if (remoteReflectionIds.length > 0) {
+          const { error } = await supabase
+            .from("community_reflections")
+            .delete()
+            .in("id", remoteReflectionIds)
+            .eq("user_id", user.id)
+
+          if (error && !isMissingCommunityTableError(error)) {
+            logClientError("profile.community_reflection.unshare", error)
+            setProfileErrorMessage("커뮤니티 공유를 취소하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+            return
+          }
+        }
+
+        const communityThreadIds = Array.from(
+          new Set(targetEntries.map((entry) => entry.communityThreadId).filter((id): id is string => Boolean(id)))
+        )
+
+        await Promise.all(
+          communityThreadIds.map(async (threadId) => {
+            const { count, error: countError } = await supabase
+              .from("community_reflections")
+              .select("id", { count: "exact", head: true })
+              .eq("community_question_id", threadId)
+
+            if (countError || count !== 0) return
+
+            const { error } = await supabase
+              .from("community_questions")
+              .delete()
+              .eq("id", threadId)
+              .eq("created_by", user.id)
+
+            if (error && !isMissingCommunityTableError(error)) {
+              logClientError("profile.community_question.cleanup", error)
+            }
+          })
+        )
+      }
+
+      targetEntries.forEach((entry) => {
+        if (entry.communityReflectionId) {
+          removeCommunityReflection(entry.communityThreadId ?? null, entry.communityReflectionId)
+        }
+      })
+
+      const now = new Date().toISOString()
+      const nextEntries = entries.map((entry) =>
+        targetEntryIds.has(entry.id)
+          ? {
+              ...entry,
+              communityReflectionId: null,
+              communitySharedAt: null,
+              communityThreadId: null,
+              updatedAt: now,
+            }
+          : entry
+      )
+      const persisted = await updateSavedQuestionEntries(target.savedQuestion, nextEntries)
+
+      if (!persisted) return
+
+      setNoteShareRemovalTarget(null)
+      setProfileErrorMessage("")
+    } finally {
+      setSharingNoteIds((currentIds) => {
+        const nextIds = new Set(currentIds)
+
+        noteIds.forEach((noteId) => nextIds.delete(noteId))
+        return nextIds
+      })
+    }
+  }
+
   const updateSavedQuestionNote = async (item: SavedQuestion) => {
     const draft = (noteDrafts[item.id] ?? "").trim()
 
@@ -920,7 +1076,7 @@ export default function ProfilePage() {
       question: item.question,
       savedQuestion: item,
       summary: item.summary,
-      sourceTitle: getHistoryTitle(item.source),
+      sourceTitle: getHistoryTitle(item.source, sourceTitleOverrides),
     }))
     .filter((item) => item.entries.length > 0)
 
@@ -951,15 +1107,15 @@ export default function ProfilePage() {
                 title="요약 보기"
                 className="mt-2 block max-w-full truncate text-left text-xs font-medium leading-[1.5] text-[#f5dfbd]/36 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/66 hover:underline focus:outline-none"
               >
-                {getHistoryTitle(item.source)}
+                {getHistoryTitle(item.source, sourceTitleOverrides)}
               </button>
             ) : (
               <p className="mt-2 truncate text-xs font-medium leading-[1.5] text-[#f5dfbd]/36">
-                {getHistoryTitle(item.source)}
+                {getHistoryTitle(item.source, sourceTitleOverrides)}
               </p>
             )}
           </div>
-          <div className="flex shrink-0 items-start gap-3">
+          <div className="flex h-[18px] shrink-0 items-center gap-2.5">
             <time className="font-mono text-[10px] leading-none text-[#f5dfbd]/32">
               {formatDate(item.savedAt)}
             </time>
@@ -1073,7 +1229,7 @@ export default function ProfilePage() {
                   maxLength={personalNoteMaxLength}
                   rows={4}
                   placeholder="이 질문에 대한 내 생각을 남겨보세요."
-                  className={`${noteEntries.length > 0 ? "mt-4" : "mt-3"} min-h-28 w-full resize-none border border-[#d9ad73]/16 bg-[#080403]/28 px-3 py-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/42`}
+                  className={`${noteEntries.length > 0 ? "mt-4" : "mt-3"} min-h-28 w-full resize-none border border-[#d9ad73]/16 bg-[#080403]/28 px-3 py-3 text-base font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/42 sm:text-sm`}
                 />
                 <div className="mt-3 flex justify-end">
                   <button
@@ -1118,25 +1274,32 @@ export default function ProfilePage() {
               type="button"
               onClick={() => toggleNoteSummary(item.id)}
               title="요약 보기"
-              className="min-w-0 truncate text-left font-mono text-xs font-medium uppercase leading-[1.5] tracking-[0.12em] text-[#d2ad7c]/46 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
+              className="min-w-0 truncate text-left font-mono text-xs font-medium leading-[1.5] tracking-[0.12em] text-[#d2ad7c]/46 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
             >
               {item.sourceTitle}
             </button>
           ) : (
-            <p className="min-w-0 truncate font-mono text-xs font-medium uppercase leading-[1.5] tracking-[0.12em] text-[#d2ad7c]/42">
+            <p className="min-w-0 truncate font-mono text-xs font-medium leading-[1.5] tracking-[0.12em] text-[#d2ad7c]/42">
               {item.sourceTitle}
             </p>
           )}
           <div className="flex shrink-0 items-start gap-3">
             <button
               type="button"
-              onClick={() => sharePersonalNoteCard(item.savedQuestion)}
-              disabled={isSharing || isShared}
-              aria-label={isShared ? "커뮤니티에 공유됨" : "커뮤니티에 공유"}
-              className={`flex h-[15px] items-center gap-1.5 pl-1 font-mono text-[11px] font-medium uppercase leading-none tracking-[0.1em] transition-colors duration-300 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${
+              onClick={() => {
+                if (isShared) {
+                  requestRemovePersonalNoteShare(item)
+                  return
+                }
+
+                void sharePersonalNoteCard(item.savedQuestion)
+              }}
+              disabled={isSharing}
+              aria-label={isShared ? "커뮤니티 공유 취소" : "커뮤니티에 공유"}
+              className={`flex h-[18px] items-center gap-1.5 rounded-full border px-2 font-mono text-[11px] font-medium uppercase leading-none tracking-[0.1em] transition-colors duration-300 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${
                 isShared
-                  ? "text-[#efd3a2]/76"
-                  : "text-[#d2ad7c]/42 hover:text-[#f5dfbd]/78"
+                  ? "border-[#8d4f31]/46 bg-[#8d4f31]/18 text-[#efd3a2]/88 hover:border-[#d9ad73]/60 hover:bg-[#8d4f31]/28 hover:text-[#fff4dc]"
+                  : "border-transparent text-[#d2ad7c]/42 hover:text-[#f5dfbd]/78"
               }`}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1151,9 +1314,9 @@ export default function ProfilePage() {
               type="button"
               onClick={() => deleteSavedQuestionNotes(item.savedQuestion)}
               aria-label="내 고찰 전체 삭제"
-              className="flex h-[15px] w-[15px] shrink-0 items-center justify-center text-[#d2ad7c]/42 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none"
+              className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-[#d2ad7c]/42 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none"
             >
-              <TrashIcon className="h-[15px] w-[13px] -translate-y-[0.5px]" />
+              <TrashIcon className="h-[15px] w-[13px] -translate-y-[0.25px]" />
             </button>
           </div>
         </div>
@@ -1264,7 +1427,7 @@ export default function ProfilePage() {
         </button>
         <Link
           href="/community"
-          className="inline-flex h-10 items-center border border-[#d9ad73]/25 bg-[#f5dfbd]/[0.08] px-3.5 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-[#f5dfbd]/58 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-500 hover:border-[#d9ad73]/55 hover:text-[#f5dfbd]/90 focus:outline-none"
+          className="inline-flex h-10 items-center border border-[#d9ad73]/38 bg-[#d19045]/[0.2] px-3.5 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-[#efd3a2]/68 shadow-[0_12px_32px_rgba(13,8,5,0.34)] ring-1 ring-[#efd3a2]/[0.02] backdrop-blur-md transition-colors duration-500 hover:border-[#d9ad73]/56 hover:bg-[#d19045]/[0.3] hover:text-[#fff4dc] focus:outline-none"
         >
           Community
         </Link>
@@ -1382,7 +1545,7 @@ export default function ProfilePage() {
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-lg font-medium leading-none text-[#f5dfbd]/86 [overflow-wrap:anywhere] [word-break:keep-all]">
-                          {getHistoryTitle(item.source)}
+                          {getHistoryTitle(item.source, sourceTitleOverrides)}
                         </p>
                       </div>
                       <div className="flex shrink-0 items-start gap-3">
@@ -1467,6 +1630,48 @@ export default function ProfilePage() {
           )}
         </section>
       </div>
+      {noteShareRemovalTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#080403]/70 px-5 backdrop-blur-md"
+          role="presentation"
+          onClick={() => setNoteShareRemovalTarget(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-unshare-note-title"
+            className="w-full max-w-sm border border-[#d9ad73]/24 bg-[#120b07]/95 p-6 shadow-[0_24px_80px_rgba(13,8,5,0.72)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p
+              id="profile-unshare-note-title"
+              className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-[#d2ad7c]/55"
+            >
+              공유 취소
+            </p>
+            <p className="mt-4 text-sm font-medium leading-[1.75] text-[#f5dfbd]/72 [word-break:keep-all]">
+              삭제 시 커뮤니티에 공유된 {noteShareRemovalTarget.entries.length}개의 내 고찰이 사라집니다.
+              함께 달린 타인의 생각은 남겨두고 내 고찰만 삭제됩니다. 정말 공유를 취소하시겠습니까?
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setNoteShareRemovalTarget(null)}
+                className="border border-[#d9ad73]/18 bg-[#f5dfbd]/[0.04] px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#f5dfbd]/46 transition-colors duration-300 hover:text-[#f5dfbd]/72 focus:outline-none"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={removePersonalNoteShare}
+                className="border border-[#d9ad73]/30 bg-[#8d4f31]/18 px-4 py-2 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#efd3a2]/78 transition-colors duration-300 hover:border-[#efd3a2]/52 hover:bg-[#8d4f31]/28 hover:text-[#fff4dc] focus:outline-none"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }

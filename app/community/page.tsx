@@ -8,6 +8,7 @@ import { useBgm } from "@/context/BgmContext"
 import { logClientError } from "@/lib/client-error"
 import { gtag } from "@/lib/gtag"
 import { SummaryText } from "@/lib/summary-display"
+import { fetchSourceDisplayTitle, getSourceDisplayTitle, isSourceTitleFetchable } from "@/lib/source-display"
 import {
   createCommunityId,
   readCommunityFeedCache,
@@ -99,14 +100,8 @@ const formatDate = (value: string) =>
     minute: "2-digit",
   }).format(new Date(value))
 
-const getSourceTitle = (source: string) => {
-  try {
-    const url = new URL(source)
-    return url.hostname.replace(/^www\./, "")
-  } catch {
-    return source || "직접 작성한 질문"
-  }
-}
+const getSourceTitle = (source: string, sourceTitleOverrides: Record<string, string>) =>
+  getSourceDisplayTitle(source, sourceTitleOverrides[source])
 
 const getDisplayName = (user: ReturnType<typeof useAuth>["user"]) => {
   if (!user) return "Profile"
@@ -363,6 +358,7 @@ export default function CommunityPage() {
   const [showLoginRequiredModal, setShowLoginRequiredModal] = useState(false)
   const [loading, setLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState("")
+  const [sourceTitleOverrides, setSourceTitleOverrides] = useState<Record<string, string>>({})
   const communityViewSentRef = useRef(false)
   const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
@@ -614,6 +610,47 @@ export default function CommunityPage() {
       cancelled = true
     }
   }, [likeActorId, supabase])
+
+  useEffect(() => {
+    const sources = Array.from(
+      new Set(
+        threads
+          .map((thread) => thread.source.trim())
+          .filter((source) => source && isSourceTitleFetchable(source) && !sourceTitleOverrides[source])
+      )
+    )
+
+    if (sources.length === 0) return
+
+    let cancelled = false
+
+    Promise.all(
+      sources.map(async (source) => ({
+        source,
+        title: await fetchSourceDisplayTitle(source),
+      }))
+    ).then((results) => {
+      if (cancelled) return
+
+      setSourceTitleOverrides((currentTitles) => {
+        const nextTitles = { ...currentTitles }
+        let changed = false
+
+        results.forEach(({ source, title }) => {
+          if (!title || nextTitles[source]) return
+
+          nextTitles[source] = title
+          changed = true
+        })
+
+        return changed ? nextTitles : currentTitles
+      })
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [sourceTitleOverrides, threads])
 
   const replaceThread = (thread: CommunityThread, shouldPersistLocally: boolean) => {
     setThreads((currentThreads) =>
@@ -1235,7 +1272,7 @@ export default function CommunityPage() {
             visibleThreads.map((thread) => {
               const sourceThread = threads.find((item) => item.id === thread.id) ?? thread
               const summaryOpen = openSummaryIds.has(thread.id)
-              const sourceTitle = getSourceTitle(thread.source)
+              const sourceTitle = getSourceTitle(thread.source, sourceTitleOverrides)
               const draft = reflectionDrafts[thread.id] ?? ""
               const savingReflection = savingReflectionIds.has(thread.id)
               const threadCanDelete = canDeleteThread(sourceThread)
@@ -1254,12 +1291,12 @@ export default function CommunityPage() {
                         type="button"
                         onClick={() => toggleSummary(thread.id)}
                         title="요약 보기"
-                        className="min-w-0 truncate text-left font-mono text-xs font-medium uppercase tracking-[0.12em] text-[#d2ad7c]/46 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
+                        className="min-w-0 truncate text-left font-mono text-xs font-medium tracking-[0.12em] text-[#d2ad7c]/46 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
                       >
                         {sourceTitle}
                       </button>
                     ) : (
-                      <p className="min-w-0 truncate font-mono text-xs font-medium uppercase tracking-[0.12em] text-[#d2ad7c]/42">
+                      <p className="min-w-0 truncate font-mono text-xs font-medium tracking-[0.12em] text-[#d2ad7c]/42">
                         {sourceTitle}
                       </p>
                     )}
@@ -1347,7 +1384,7 @@ export default function CommunityPage() {
                       maxLength={reflectionMaxLength}
                       rows={3}
                       placeholder="이 질문에 생각을 더해보세요."
-                      className="min-h-24 w-full resize-none border border-[#d9ad73]/16 bg-[#080403]/28 px-3 py-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/42"
+                      className="min-h-24 w-full resize-none border border-[#d9ad73]/16 bg-[#080403]/28 px-3 py-3 text-base font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/42 sm:text-sm"
                     />
                     <div className="mt-3 flex items-center justify-between gap-4">
                       <button

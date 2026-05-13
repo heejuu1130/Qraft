@@ -10,6 +10,7 @@ import { gtag } from "@/lib/gtag"
 import { logClientError } from "@/lib/client-error"
 import { normalizeQuestionEndingTone, normalizeQuestionListTone } from "@/lib/question-tone"
 import { SummaryText } from "@/lib/summary-display"
+import { getSourceDisplayTitle } from "@/lib/source-display"
 import {
   isMissingSavedQuestionColumnError,
   normalizeReflectionVisibility,
@@ -541,9 +542,8 @@ const getSourceDisplayLabel = (source: string) => {
   if (!trimmedSource) return ""
 
   try {
-    const url = new URL(trimmedSource)
-
-    return url.hostname.replace(/^www\./, "")
+    new URL(trimmedSource)
+    return getSourceDisplayTitle(trimmedSource)
   } catch {
     const characters = Array.from(trimmedSource)
 
@@ -2519,7 +2519,7 @@ export default function Hero() {
         )}
         <Link
           href="/community"
-          className="inline-flex h-10 items-center border border-[#d9ad73]/25 bg-[#f5dfbd]/[0.08] px-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#f5dfbd]/56 shadow-[0_10px_30px_rgba(13,8,5,0.32)] backdrop-blur-md transition-colors duration-500 hover:border-[#d9ad73]/55 hover:text-[#f5dfbd]/90 focus:outline-none"
+          className="inline-flex h-10 items-center border border-[#d9ad73]/38 bg-[#d19045]/[0.2] px-3.5 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-[#efd3a2]/68 shadow-[0_12px_32px_rgba(13,8,5,0.34)] ring-1 ring-[#efd3a2]/[0.02] backdrop-blur-md transition-colors duration-500 hover:border-[#d9ad73]/56 hover:bg-[#d19045]/[0.3] hover:text-[#fff4dc] focus:outline-none"
         >
           Community
         </Link>
@@ -2812,7 +2812,7 @@ export default function Hero() {
                     maxLength={1200}
                     rows={5}
                     placeholder={"작성하신 내용은 관리자에게 전달됩니다.\n별점만 남겨주셔도 큰 힘이 됩니다."}
-                    className="min-h-32 w-full resize-none border border-[#d9ad73]/20 bg-[#080403]/32 px-4 py-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/48 focus:bg-[#080403]/44"
+                    className="min-h-32 w-full resize-none border border-[#d9ad73]/20 bg-[#080403]/32 px-4 py-3 text-base font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/48 focus:bg-[#080403]/44 sm:text-sm"
                   />
 
                   <div className="mt-3 flex items-center justify-between gap-4">
@@ -3592,7 +3592,7 @@ export default function Hero() {
                               maxLength={personalNoteMaxLength}
                               rows={4}
                               placeholder="이 질문에 대한 내 생각을 남겨보세요."
-                              className={`${personalNoteEntries.length > 0 ? "mt-4" : "mt-3"} min-h-28 w-full resize-none border border-[#d9ad73]/16 bg-[#120b07]/46 px-3 py-3 text-sm font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/42`}
+                              className={`${personalNoteEntries.length > 0 ? "mt-4" : "mt-3"} min-h-28 w-full resize-none border border-[#d9ad73]/16 bg-[#120b07]/46 px-3 py-3 text-base font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/42 sm:text-sm`}
                             />
                             <div className="mt-3 flex items-center justify-between gap-4">
                               <span className="font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/36">

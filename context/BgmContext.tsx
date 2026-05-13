@@ -13,6 +13,8 @@ type BgmContextType = {
   toggleBgm: () => void
 }
 
+type ClientStorageName = "localStorage" | "sessionStorage"
+
 declare global {
   interface Window {
     __qraftBgmAudio?: HTMLAudioElement | null
@@ -24,16 +26,39 @@ const BgmContext = createContext<BgmContextType>({
   toggleBgm: () => {},
 })
 
+const warnStorageSkipped = (label: string, error: unknown) => {
+  if (process.env.NODE_ENV !== "production") {
+    console.warn(label, error)
+  }
+}
+
+const readStorageItem = (storageName: ClientStorageName, key: string) => {
+  try {
+    return window[storageName].getItem(key)
+  } catch (error) {
+    warnStorageSkipped(`${storageName} read skipped`, error)
+    return null
+  }
+}
+
+const writeStorageItem = (storageName: ClientStorageName, key: string, value: string) => {
+  try {
+    window[storageName].setItem(key, value)
+  } catch (error) {
+    warnStorageSkipped(`${storageName} write skipped`, error)
+  }
+}
+
 const readStoredBgmOn = () => {
   if (typeof window === "undefined") return true
 
-  return window.localStorage.getItem(BGM_ON_STORAGE_KEY) !== "false"
+  return readStorageItem("localStorage", BGM_ON_STORAGE_KEY) !== "false"
 }
 
 const readStoredBgmTime = () => {
   if (typeof window === "undefined") return 0
 
-  const storedTime = Number(window.sessionStorage.getItem(BGM_TIME_STORAGE_KEY))
+  const storedTime = Number(readStorageItem("sessionStorage", BGM_TIME_STORAGE_KEY))
 
   return Number.isFinite(storedTime) && storedTime > 0 ? storedTime : 0
 }
@@ -41,7 +66,7 @@ const readStoredBgmTime = () => {
 const writeStoredBgmTime = (time: number) => {
   if (typeof window === "undefined" || !Number.isFinite(time)) return
 
-  window.sessionStorage.setItem(BGM_TIME_STORAGE_KEY, String(time))
+  writeStorageItem("sessionStorage", BGM_TIME_STORAGE_KEY, String(time))
 }
 
 export function BgmProvider({ children }: { children: React.ReactNode }) {
@@ -159,7 +184,7 @@ export function BgmProvider({ children }: { children: React.ReactNode }) {
     if (!bgmPreferenceReady) return
 
     bgmOnRef.current = bgmOn
-    window.localStorage.setItem(BGM_ON_STORAGE_KEY, String(bgmOn))
+    writeStorageItem("localStorage", BGM_ON_STORAGE_KEY, String(bgmOn))
 
     const audio = audioRef.current
     if (!audio) return

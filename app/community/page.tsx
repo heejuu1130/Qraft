@@ -431,6 +431,7 @@ export default function CommunityPage() {
     const loadCommunity = async () => {
       setLoading(true)
 
+      try {
       const localThreads = readCommunityThreads()
       const cachedThreads = readCommunityFeedCache()
       const localLegacyThreads = readCommunityReflectionMeta()
@@ -602,6 +603,16 @@ export default function CommunityPage() {
       }
 
       setErrorMessage(remoteErrorMessage)
+      } catch (error) {
+        if (cancelled) return
+
+        logClientError("community.load", error)
+        setErrorMessage("커뮤니티 생각을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
     }
 
     loadCommunity()

@@ -325,74 +325,86 @@ export default function ProfilePage() {
 
       setProfileDataLoading(true)
 
-      if (isLocalDevUser(user)) {
-        const mappedQuestions = Object.values(readSavedQuestionMeta(user.id))
-          .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())
-          .map(mapSavedQuestionLocalMeta)
+      try {
+        if (isLocalDevUser(user)) {
+          const mappedQuestions = Object.values(readSavedQuestionMeta(user.id))
+            .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())
+            .map(mapSavedQuestionLocalMeta)
 
-        if (cancelled) return
+          if (cancelled) return
 
-        setHistory(readLocalQuestionHistory(user.id))
-        setSavedQuestions(mappedQuestions)
-        setNoteDrafts({})
-        setProfileErrorMessage("")
-        setProfileDataLoading(false)
-        return
-      }
-
-      if (user) {
-        const [historyResponse, initialSavedQuestionsResponse] = await Promise.all([
-          supabase
-            .from("question_history")
-            .select("id, source, summary, questions, reflections, created_at")
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("saved_questions")
-            .select("id, source, summary, question, question_index, reflection, personal_note, visibility, shared_at, created_at")
-            .order("created_at", { ascending: false }),
-        ])
-        let savedQuestionsData = initialSavedQuestionsResponse.data
-        let savedQuestionsError = initialSavedQuestionsResponse.error
-
-        if (savedQuestionsError && isMissingSavedQuestionColumnError(savedQuestionsError)) {
-          const fallbackSavedQuestionsResponse = await supabase
-            .from("saved_questions")
-            .select("id, source, summary, question, question_index, created_at")
-            .order("created_at", { ascending: false })
-
-          savedQuestionsData = fallbackSavedQuestionsResponse.data as typeof savedQuestionsData
-          savedQuestionsError = fallbackSavedQuestionsResponse.error
-        }
-
-        if (cancelled) return
-
-        if (historyResponse.error) {
-          logClientError("profile.history.load", historyResponse.error)
-          setHistory([])
-        } else {
-          setHistory(((historyResponse.data ?? []) as DbQuestionHistoryRow[]).map(mapHistoryRow))
-        }
-
-        if (savedQuestionsError) {
-          logClientError("profile.saved_questions.load", savedQuestionsError)
-          setSavedQuestions([])
-        } else {
-          const localMeta = readSavedQuestionMeta(user.id)
-          const mappedQuestions = ((savedQuestionsData ?? []) as DbSavedQuestionRow[]).map((row) =>
-            mapSavedQuestionRow(row, localMeta[row.id])
-          )
-
+          setHistory(readLocalQuestionHistory(user.id))
           setSavedQuestions(mappedQuestions)
           setNoteDrafts({})
+          setProfileErrorMessage("")
+          return
         }
 
-        setProfileErrorMessage(
-          historyResponse.error || savedQuestionsError
-            ? "프로필 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
-            : ""
-        )
-        setProfileDataLoading(false)
-        return
+        if (user) {
+          const [historyResponse, initialSavedQuestionsResponse] = await Promise.all([
+            supabase
+              .from("question_history")
+              .select("id, source, summary, questions, reflections, created_at")
+              .order("created_at", { ascending: false }),
+            supabase
+              .from("saved_questions")
+              .select("id, source, summary, question, question_index, reflection, personal_note, visibility, shared_at, created_at")
+              .order("created_at", { ascending: false }),
+          ])
+          let savedQuestionsData = initialSavedQuestionsResponse.data
+          let savedQuestionsError = initialSavedQuestionsResponse.error
+
+          if (savedQuestionsError && isMissingSavedQuestionColumnError(savedQuestionsError)) {
+            const fallbackSavedQuestionsResponse = await supabase
+              .from("saved_questions")
+              .select("id, source, summary, question, question_index, created_at")
+              .order("created_at", { ascending: false })
+
+            savedQuestionsData = fallbackSavedQuestionsResponse.data as typeof savedQuestionsData
+            savedQuestionsError = fallbackSavedQuestionsResponse.error
+          }
+
+          if (cancelled) return
+
+          if (historyResponse.error) {
+            logClientError("profile.history.load", historyResponse.error)
+            setHistory([])
+          } else {
+            setHistory(((historyResponse.data ?? []) as DbQuestionHistoryRow[]).map(mapHistoryRow))
+          }
+
+          if (savedQuestionsError) {
+            logClientError("profile.saved_questions.load", savedQuestionsError)
+            setSavedQuestions([])
+          } else {
+            const localMeta = readSavedQuestionMeta(user.id)
+            const mappedQuestions = ((savedQuestionsData ?? []) as DbSavedQuestionRow[]).map((row) =>
+              mapSavedQuestionRow(row, localMeta[row.id])
+            )
+
+            setSavedQuestions(mappedQuestions)
+            setNoteDrafts({})
+          }
+
+          setProfileErrorMessage(
+            historyResponse.error || savedQuestionsError
+              ? "프로필 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
+              : ""
+          )
+          return
+        }
+      } catch (error) {
+        if (cancelled) return
+
+        logClientError("profile.data.load", error)
+        setHistory([])
+        setSavedQuestions([])
+        setNoteDrafts({})
+        setProfileErrorMessage("프로필 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+      } finally {
+        if (!cancelled) {
+          setProfileDataLoading(false)
+        }
       }
     }
 

@@ -206,11 +206,15 @@ export function usePerformanceMode() {
   const overrideMotionMode = readShaderModeOverride()
   const backgroundMotionMode: BackgroundMotionMode =
     overrideMotionMode ??
-    (!pageVisible || prefersReducedMotion || constrainedDevice
+    (!pageVisible || prefersReducedMotion
       ? "frozen"
-      : compactTouchViewport && measuredMotionMode === "full"
-        ? "reduced"
-        : measuredMotionMode)
+      : compactTouchViewport
+        ? measuredMotionMode === "full" || measuredMotionMode === "frozen"
+          ? "reduced"
+          : measuredMotionMode
+        : constrainedDevice
+          ? "frozen"
+          : measuredMotionMode)
 
   return useMemo(
     () => ({

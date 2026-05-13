@@ -373,10 +373,15 @@ When search reference content is provided (검색 기반 참고 내용):
 - For factual subjects: identify subject first, use only stably confirmed facts (affiliation, role, work name, release date).
 - Don't assert fast-changing figures precisely — use conservative phrasing: "최근 성적", "검색 시점 기준", "상위권".
 - Keep only 2–3 confirmed facts that create the core tension. Don't list facts at length.
-- Questions based on search content ask about the user's perspective — not future predictions or fact confirmations.
+- Questions based on search content anchor to a specific fact, tension, or decision found in the reference — not vague impressions or generic life questions.
 - If the user provided a work/media type, summarize the matched work's platform, cast/creator, premise, release context, or genre only when they are confirmed by the reference. Do not drift into the title word's place, brand, or generic meaning.
 
-Short topic without search reference:
+When search was attempted but no reference content was retrieved (검색 시도 후 참고 내용 없음):
+- The input likely refers to a real person, team, work, or brand — treat it as a factual subject, not an abstract concept.
+- Do not add unverified facts (stats, affiliations, cast, release dates). Work only from what the input itself implies.
+- Ask about the tensions, choices, or contradictions that the subject name itself suggests.
+
+Short topic without search reference (개념형 주제):
 - Treat as conceptual. Never add real people, events, backgrounds, authors, years, affiliations, or stats.
 - Focus only on the perspectives and tensions in the input term itself.
 
@@ -2039,11 +2044,10 @@ function buildModelInput({
     sourceKind === "topic"
       ? forceWebSearch
         ? [
-            "참고 내용: 웹 검색 도구를 반드시 사용하세요.",
-            "사용자 원문과 직접 관련된 상위 결과 1~3개만 참고하세요.",
-            "검색 결과로 대상 식별이 가능하면 안정적으로 확인되는 사실 2~3개와 그 사실이 만드는 긴장을 바탕으로 요약과 질문을 만드세요.",
-            "자주 바뀌는 수치, 순위, 가격, 성적은 사용자가 직접 요구하지 않았다면 정확한 숫자로 단정하지 말고 보수적으로 표현하세요.",
-            "검색 결과로 확인되지 않은 이력, 소속, 기록, 수치, 평가를 추가하지 마세요.",
+            "참고 내용: 검색 결과를 확보하지 못했습니다.",
+            "사용자 원문은 실존 인물, 팀, 작품, 브랜드처럼 실제 대상을 가리킬 가능성이 높습니다.",
+            "확인되지 않은 사실(이력, 소속, 성적, 출연진, 수치)은 추가하지 마세요.",
+            "입력어에서 읽히는 대상의 성격과 맥락을 바탕으로 질문을 만드세요.",
             "summary는 기본 형식을 유지하고, questions/reflections까지 반드시 완성된 JSON 객체 하나만 반환하세요.",
             "마크다운 코드블록, 인사말, 설명 문장은 절대 쓰지 마세요.",
           ]
@@ -2807,7 +2811,7 @@ export async function POST(request: Request) {
     content,
     sourceKind,
     resolved: contentResolved && content.trim().length > 0,
-    forceWebSearch: false,
+    forceWebSearch: forceTopicWebSearch,
   })
 
   let raw = ""

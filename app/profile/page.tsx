@@ -1115,7 +1115,7 @@ export default function ProfilePage() {
               </p>
             )}
           </div>
-          <div className="flex h-[18px] shrink-0 items-center gap-2.5">
+          <div className="flex shrink-0 items-start gap-3">
             <time className="font-mono text-[10px] leading-none text-[#f5dfbd]/32">
               {formatDate(item.savedAt)}
             </time>
@@ -1274,12 +1274,12 @@ export default function ProfilePage() {
               type="button"
               onClick={() => toggleNoteSummary(item.id)}
               title="요약 보기"
-              className="min-w-0 truncate text-left font-mono text-xs font-medium leading-[1.5] tracking-[0.12em] text-[#d2ad7c]/46 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
+              className="min-w-0 -translate-y-[4px] truncate text-left font-mono text-xs font-medium leading-[1.5] tracking-[0.12em] text-[#d2ad7c]/46 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
             >
               {item.sourceTitle}
             </button>
           ) : (
-            <p className="min-w-0 truncate font-mono text-xs font-medium leading-[1.5] tracking-[0.12em] text-[#d2ad7c]/42">
+            <p className="min-w-0 -translate-y-[4px] truncate font-mono text-xs font-medium leading-[1.5] tracking-[0.12em] text-[#d2ad7c]/42">
               {item.sourceTitle}
             </p>
           )}
@@ -1296,27 +1296,34 @@ export default function ProfilePage() {
               }}
               disabled={isSharing}
               aria-label={isShared ? "커뮤니티 공유 취소" : "커뮤니티에 공유"}
-              className={`flex h-[18px] items-center gap-1.5 rounded-full border px-2 font-mono text-[11px] font-medium uppercase leading-none tracking-[0.1em] transition-colors duration-300 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${
+              style={{
+                paddingLeft: isShared ? 9 : 11,
+                paddingRight: isShared ? 7 : 5,
+                transform: "translateY(-4px)",
+              }}
+              className={`flex h-[18px] items-center rounded-full border font-mono text-[11px] font-medium uppercase leading-none tracking-[0.1em] transition-colors duration-300 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${
                 isShared
                   ? "border-[#8d4f31]/46 bg-[#8d4f31]/18 text-[#efd3a2]/88 hover:border-[#d9ad73]/60 hover:bg-[#8d4f31]/28 hover:text-[#fff4dc]"
                   : "border-transparent text-[#d2ad7c]/42 hover:text-[#f5dfbd]/78"
               }`}
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M8.75 12.75L15.25 16.25M15.25 7.75L8.75 11.25" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-                <path d="M6.5 14.5C7.88 14.5 9 13.38 9 12C9 10.62 7.88 9.5 6.5 9.5C5.12 9.5 4 10.62 4 12C4 13.38 5.12 14.5 6.5 14.5Z" stroke="currentColor" strokeWidth="1.7" />
-                <path d="M17.5 9.5C18.88 9.5 20 8.38 20 7C20 5.62 18.88 4.5 17.5 4.5C16.12 4.5 15 5.62 15 7C15 8.38 16.12 9.5 17.5 9.5Z" stroke="currentColor" strokeWidth="1.7" />
-                <path d="M17.5 19.5C18.88 19.5 20 18.38 20 17C20 15.62 18.88 14.5 17.5 14.5C16.12 14.5 15 15.62 15 17C15 18.38 16.12 19.5 17.5 19.5Z" stroke="currentColor" strokeWidth="1.7" />
-              </svg>
-              <span>{isShared ? "공유됨" : "공유"}</span>
+              <span className="flex items-center gap-1.5">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M8.75 12.75L15.25 16.25M15.25 7.75L8.75 11.25" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                  <path d="M6.5 14.5C7.88 14.5 9 13.38 9 12C9 10.62 7.88 9.5 6.5 9.5C5.12 9.5 4 10.62 4 12C4 13.38 5.12 14.5 6.5 14.5Z" stroke="currentColor" strokeWidth="1.7" />
+                  <path d="M17.5 9.5C18.88 9.5 20 8.38 20 7C20 5.62 18.88 4.5 17.5 4.5C16.12 4.5 15 5.62 15 7C15 8.38 16.12 9.5 17.5 9.5Z" stroke="currentColor" strokeWidth="1.7" />
+                  <path d="M17.5 19.5C18.88 19.5 20 18.38 20 17C20 15.62 18.88 14.5 17.5 14.5C16.12 14.5 15 15.62 15 17C15 18.38 16.12 19.5 17.5 19.5Z" stroke="currentColor" strokeWidth="1.7" />
+                </svg>
+                <span>{isShared ? "공유됨" : "공유"}</span>
+              </span>
             </button>
             <button
               type="button"
               onClick={() => deleteSavedQuestionNotes(item.savedQuestion)}
               aria-label="내 고찰 전체 삭제"
-              className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-[#d2ad7c]/42 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none"
+              className="flex h-[15px] w-[15px] shrink-0 items-center justify-center text-[#d2ad7c]/42 transition-colors duration-300 hover:text-[#f5dfbd]/78 focus:outline-none"
             >
-              <TrashIcon className="h-[15px] w-[13px] -translate-y-[0.25px]" />
+              <TrashIcon className="h-[15px] w-[13px] -translate-y-[3px]" />
             </button>
           </div>
         </div>

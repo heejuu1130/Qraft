@@ -1291,12 +1291,12 @@ export default function CommunityPage() {
                         type="button"
                         onClick={() => toggleSummary(thread.id)}
                         title="요약 보기"
-                        className="min-w-0 truncate text-left font-mono text-xs font-medium tracking-[0.12em] text-[#d2ad7c]/46 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
+                        className="min-w-0 -translate-y-[1.5px] truncate text-left font-mono text-xs font-medium leading-none tracking-[0.12em] text-[#d2ad7c]/46 underline-offset-4 transition-colors duration-300 hover:text-[#f5dfbd]/72 hover:underline focus:outline-none"
                       >
                         {sourceTitle}
                       </button>
                     ) : (
-                      <p className="min-w-0 truncate font-mono text-xs font-medium tracking-[0.12em] text-[#d2ad7c]/42">
+                      <p className="min-w-0 -translate-y-[1.5px] truncate font-mono text-xs font-medium leading-none tracking-[0.12em] text-[#d2ad7c]/42">
                         {sourceTitle}
                       </p>
                     )}

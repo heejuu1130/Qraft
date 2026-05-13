@@ -10,6 +10,8 @@ const contentCharacterLimit = 8000
 const jinaReaderTimeoutMs = 12000
 const jinaReaderRetryTimeoutMs = 18000
 const jinaReaderRetryDelayMs = 650
+const jinaSearchTimeoutMs = 10000
+const wikipediaSearchTimeoutMs = 7000
 const geminiGroundingTimeoutMs = 15000
 const urlGenerationMaxTokens = 1400
 const youtubeReaderTimeoutMs = 15000
@@ -35,7 +37,7 @@ const cacheCurrentFactTtlMs = 36 * 60 * 60 * 1000
 const cacheFactualTopicTtlMs = 7 * 24 * 60 * 60 * 1000
 const cacheTopicTtlMs = 30 * 24 * 60 * 60 * 1000
 const cacheLinkTtlMs = 60 * 24 * 60 * 60 * 1000
-const questionCacheVersion = "v14"
+const questionCacheVersion = "v19"
 const qraftServiceKnowledgeVersion = "qraft_service_v1"
 const tokenStrategyVersion = process.env.QRAFT_TOKEN_STRATEGY_VERSION?.trim() || "usage_v1"
 const tokenEventColumnNames = [
@@ -970,6 +972,101 @@ async function fetchViaJina(url: string, timeoutMs = jinaReaderTimeoutMs): Promi
   return cleanReaderContent(text).slice(0, contentCharacterLimit)
 }
 
+async function fetchJinaSearchContent(query: string): Promise<string> {
+  const apiKey = process.env.JINA_API_KEY?.trim()
+  if (!apiKey) return ""
+
+  const response = await fetch(`https://s.jina.ai/?q=${encodeURIComponent(query)}`, {
+    headers: {
+      Accept: "text/plain",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal: AbortSignal.timeout(jinaSearchTimeoutMs),
+  })
+
+  if (!response.ok) return ""
+
+  const text = cleanReaderContent(await response.text()).slice(0, contentCharacterLimit)
+
+  if (/authentication required|unauthorized|forbidden/i.test(text)) {
+    return ""
+  }
+
+  return text
+}
+
+async function fetchWikipediaPageExtract(language: "en" | "ko", pageId: number) {
+  const url = new URL(`https://${language}.wikipedia.org/w/api.php`)
+
+  url.searchParams.set("action", "query")
+  url.searchParams.set("format", "json")
+  url.searchParams.set("origin", "*")
+  url.searchParams.set("pageids", String(pageId))
+  url.searchParams.set("prop", "extracts")
+  url.searchParams.set("explaintext", "1")
+
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(wikipediaSearchTimeoutMs),
+  })
+
+  if (!response.ok) return ""
+
+  const payload = (await response.json()) as { query?: { pages?: Record<string, { extract?: unknown; title?: unknown }> } }
+  const page = payload.query?.pages?.[String(pageId)]
+  const title = typeof page?.title === "string" ? page.title.trim() : ""
+  const extract = typeof page?.extract === "string" ? page.extract.trim() : ""
+
+  if (!title && !extract) return ""
+
+  return cleanReaderContent([title ? `Title: ${title}` : "", extract].filter(Boolean).join("\n\n")).slice(
+    0,
+    contentCharacterLimit
+  )
+}
+
+async function fetchWikipediaSearchContent(query: string, language: "en" | "ko") {
+  const url = new URL(`https://${language}.wikipedia.org/w/api.php`)
+
+  url.searchParams.set("action", "query")
+  url.searchParams.set("format", "json")
+  url.searchParams.set("origin", "*")
+  url.searchParams.set("list", "search")
+  url.searchParams.set("srlimit", "4")
+  url.searchParams.set("srsearch", query)
+
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(wikipediaSearchTimeoutMs),
+  })
+
+  if (!response.ok) return ""
+
+  const payload = (await response.json()) as { query?: { search?: Array<{ pageid?: unknown; snippet?: unknown; title?: unknown }> } }
+  const results = (payload.query?.search ?? [])
+    .map((item) => ({
+      pageId: typeof item.pageid === "number" ? item.pageid : 0,
+      snippet: typeof item.snippet === "string" ? cleanHtmlText(item.snippet) : "",
+      title: typeof item.title === "string" ? item.title.trim() : "",
+    }))
+    .filter((item) => item.pageId > 0 && item.title)
+
+  for (const result of results) {
+    const extract = await fetchWikipediaPageExtract(language, result.pageId)
+
+    if (extract) {
+      return cleanReaderContent([`Title: ${result.title}`, result.snippet, extract].filter(Boolean).join("\n\n")).slice(
+        0,
+        contentCharacterLimit
+      )
+    }
+  }
+
+  return cleanReaderContent(
+    results.map((result) => [`Title: ${result.title}`, result.snippet].filter(Boolean).join("\n")).join("\n\n")
+  ).slice(0, contentCharacterLimit)
+}
+
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -1370,7 +1467,7 @@ function normalizeSummary(summary: string) {
 }
 
 function isUnavailableDisclosure(value: string) {
-  return /(확인할 수 없습니다|제공되지 않아|포함되지 않아|요약하기 어렵|일반적 맥락|직접 확인)/.test(value)
+  return /(확인할 수 없습니다|제공되지 않아|포함되지 않아|요약하기 어렵|일반적 맥락|직접 확인|검색\s*기반\s*자료|정보\s*부족|불완전|상세\s*정보|자세한\s*정보|공개되면)/.test(value)
 }
 
 function removeUnavailableDisclosure(summary: string) {
@@ -1783,6 +1880,246 @@ function getWorkTypeFocusInstruction(source: string) {
   ].join(" ")
 }
 
+type WorkGroundingProfile = {
+  aliases: string[]
+  compactTitles: string[]
+  extraQueries?: string[]
+  reference?: string
+  requiredEvidence?: RegExp[]
+}
+
+const workGroundingProfiles: WorkGroundingProfile[] = [
+  {
+    aliases: ["골드랜드", "Gold Land", "Goldland"],
+    compactTitles: ["골드랜드", "goldland"],
+    extraQueries: [
+      `"Gold Land" Korean drama Park Bo-young Kim Sung-chul Lee Hyun-wook Lee Kwang-soo Disney+ Hulu plot`,
+      `"골드랜드" 박보영 김성철 이현욱 이광수 금괴 밀수 디즈니 줄거리`,
+    ],
+    reference: [
+      "검증된 작품 참고 정보:",
+      "골드랜드(Gold Land)는 2026년 5월 기준 이미 공개 중인 한국 범죄 스릴러 드라마로, 2026년 4월 29일 Disney+/Hulu에서 공개됐습니다.",
+      "황조윤 작가가 극본을 쓰고 김성훈 감독이 연출했으며, 박보영, 김성철, 이현욱, 김희원, 문정희, 이광수 등이 출연합니다.",
+      "이야기는 국제공항 보안 검색 요원 김희주가 항공사 부기장 남자친구 이도경의 부탁으로 밀수 조직의 금괴를 손에 넣으면서 시작됩니다.",
+      "금괴를 둘러싸고 욕망과 배신, 추격이 이어지며, 희주가 금을 지키려는 욕망과 생존의 압박 속에서 변해가는 과정을 중심으로 전개됩니다.",
+    ].join("\n"),
+    requiredEvidence: [
+      /(금괴|밀수|smuggled\s+gold|gold\s+bars?)/i,
+      /(김\s*희주|희주|박보영|이도경|도경|장욱|우기|김성철|이현욱|이광수|공항|보안\s*검색|욕망|배신|추격|생존)/,
+    ],
+  },
+]
+
+function getWorkGroundingProfile(source: string) {
+  const focus = getWorkTypeFocus(source)
+
+  if (!focus) return null
+
+  const compactTitle = focus.title.replace(/\s+/g, "").toLowerCase()
+
+  return workGroundingProfiles.find((profile) => profile.compactTitles.includes(compactTitle)) ?? null
+}
+
+function getWorkGroundingAliases(source: string) {
+  const focus = getWorkTypeFocus(source)
+
+  if (!focus) return []
+
+  const profile = getWorkGroundingProfile(source)
+  return Array.from(new Set([focus.title, ...(profile?.aliases ?? [])].filter(Boolean)))
+}
+
+function getWorkGroundingSearchHints(source: string) {
+  const focus = getWorkTypeFocus(source)
+
+  if (!focus) return []
+
+  const aliases = getWorkGroundingAliases(source)
+  const profile = getWorkGroundingProfile(source)
+  const hints: string[] = []
+
+  aliases.forEach((alias) => {
+    hints.push(`"${alias}" ${focus.label} 줄거리 출연진 등장인물 공개일 감독 작가 플랫폼`)
+    hints.push(`"${alias}" ${focus.label} 공식 소개 시놉시스 주연 연출`)
+
+    if (focus.label.includes("드라마") || focus.label.includes("시리즈")) {
+      hints.push(`"${alias}" Korean drama K-drama cast plot streaming Disney+ Netflix TVING Hulu`)
+    } else if (focus.label === "영화") {
+      hints.push(`"${alias}" Korean movie film cast plot director release`)
+    } else if (focus.label.includes("책") || focus.label.includes("문학")) {
+      hints.push(`"${alias}" book novel author plot publisher characters`)
+    } else if (focus.label.includes("웹툰") || focus.label.includes("만화")) {
+      hints.push(`"${alias}" webtoon comic plot author characters platform`)
+    } else if (focus.label.includes("음악")) {
+      hints.push(`"${alias}" album song artist tracklist release`)
+    }
+  })
+
+  if (profile?.extraQueries) {
+    hints.push(...profile.extraQueries)
+  }
+
+  return Array.from(new Set(hints)).slice(0, 8)
+}
+
+type WikipediaWorkGroundingQuery = {
+  language: "en" | "ko"
+  query: string
+}
+
+function getWikipediaWorkGroundingQueries(source: string): WikipediaWorkGroundingQuery[] {
+  const focus = getWorkTypeFocus(source)
+
+  if (!focus) return []
+
+  const aliases = getWorkGroundingAliases(source)
+  const englishType = focus.label.includes("드라마") || focus.label.includes("시리즈")
+    ? "Korean drama"
+    : focus.label === "영화"
+      ? "film"
+      : focus.label.includes("책") || focus.label.includes("문학")
+        ? "novel book"
+        : focus.label.includes("웹툰") || focus.label.includes("만화")
+          ? "webtoon comic"
+          : "album song"
+  const queries = aliases.flatMap((alias) => [
+    { language: "ko" as const, query: `${alias} ${focus.label}` },
+    { language: "ko" as const, query: `${alias} 작품` },
+    { language: "en" as const, query: `${alias} ${englishType}` },
+  ])
+
+  return queries
+    .filter((item) => item.query.trim().length > 0)
+    .filter((item, index, array) => array.findIndex((candidate) => candidate.language === item.language && candidate.query === item.query) === index)
+    .slice(0, 8)
+}
+
+function hasWorkSpecificSignal(text: string) {
+  return /(줄거리|시놉시스|출연|배우|주연|등장인물|감독|연출|작가|각본|플랫폼|방영|공개|개봉|에피소드|시즌|주인공)/.test(
+    text
+  )
+}
+
+function hasWorkTitleSignal(text: string, source: string) {
+  const focus = getWorkTypeFocus(source)
+
+  if (!focus) return false
+
+  const compactText = text.replace(/\s+/g, "").toLowerCase()
+  const aliases = getWorkGroundingAliases(source)
+
+  return aliases.some((alias) => {
+    const compactAlias = alias.replace(/\s+/g, "").toLowerCase()
+    return compactAlias.length > 0 && compactText.includes(compactAlias)
+  })
+}
+
+function hasCuratedWorkCoreSignal(text: string, source: string) {
+  const profile = getWorkGroundingProfile(source)
+
+  if (!profile?.requiredEvidence || profile.requiredEvidence.length === 0) return true
+
+  return profile.requiredEvidence.every((pattern) => pattern.test(text))
+}
+
+function getWorkTypeEvidenceSignal(text: string, source: string) {
+  const focus = getWorkTypeFocus(source)
+
+  if (!focus) return false
+
+  if (focus.label.includes("드라마") || focus.label.includes("시리즈")) {
+    return /(드라마|시리즈|episode|episodes|cast|starring|stream|streaming|platform|network|disney|hulu|netflix|tving|wavve|방영|공개|출연|배우|주연|회차|에피소드|시즌)/i.test(
+      text
+    )
+  }
+
+  if (focus.label === "영화") {
+    return /(영화|film|movie|cast|starring|director|release|개봉|출연|배우|주연|감독|상영|러닝타임)/i.test(text)
+  }
+
+  if (focus.label.includes("책") || focus.label.includes("문학")) {
+    return /(책|도서|소설|novel|book|author|writer|publisher|출간|저자|작가|출판|등장인물|줄거리)/i.test(text)
+  }
+
+  if (focus.label.includes("웹툰") || focus.label.includes("만화")) {
+    return /(웹툰|만화|webtoon|comic|author|artist|platform|연재|작가|등장인물|줄거리)/i.test(text)
+  }
+
+  return /(앨범|노래|싱글|ost|album|song|single|artist|track|release|가수|아티스트|발매|수록곡)/i.test(text)
+}
+
+function getWorkGroundingScore(content: string, source: string) {
+  const text = content.trim()
+  let score = 0
+
+  if (text.length >= 260) score += 1
+  if (text.length >= 700) score += 1
+  if (hasWorkTitleSignal(text, source)) score += 3
+  if (hasWorkSpecificSignal(text)) score += 2
+  if (getWorkTypeEvidenceSignal(text, source)) score += 2
+  if (/(줄거리|시놉시스|plot|premise|story|cast|starring|출연|주연|감독|작가|writer|director|공개|개봉|release)/i.test(text)) score += 2
+  if (hasCuratedWorkCoreSignal(text, source)) score += 2
+  if (isUnavailableDisclosure(text)) score -= 6
+
+  return score
+}
+
+function isUsableWorkSearchGrounding(content: string, source: string) {
+  const text = content.trim()
+
+  if (text.length < 260) return false
+  if (!hasWorkTitleSignal(text, source)) return false
+  if (!hasCuratedWorkCoreSignal(text, source)) return false
+
+  return getWorkGroundingScore(text, source) >= 8
+}
+
+type WorkGroundingCandidate = {
+  content: string
+  score: number
+}
+
+function buildWorkGroundingCandidate(content: string, source: string): WorkGroundingCandidate {
+  return {
+    content,
+    score: isUsableWorkSearchGrounding(content, source) ? getWorkGroundingScore(content, source) : 0,
+  }
+}
+
+function selectBestWorkGroundingContent(candidates: Array<PromiseSettledResult<WorkGroundingCandidate>>) {
+  const bestCandidate = candidates
+    .filter((candidate): candidate is PromiseFulfilledResult<WorkGroundingCandidate> => candidate.status === "fulfilled")
+    .map((candidate) => candidate.value)
+    .sort((a, b) => b.score - a.score)[0]
+
+  return bestCandidate && bestCandidate.score >= 8 ? bestCandidate.content : ""
+}
+
+function getCuratedWorkGroundingReference(source: string) {
+  return getWorkGroundingProfile(source)?.reference ?? ""
+}
+
+function isWeakGroundingSummary(summary: string, source: string) {
+  const text = summary.trim()
+
+  if (!text) return true
+
+  const hasUnavailableSignal =
+    /(검색\s*기반\s*자료|정보\s*부족|불완전|신뢰할\s*만한|상세\s*정보|자세한\s*정보|공개되면|공개되지|확인되지|알려지지|제한적|추측|판단해야)/.test(
+      text
+    )
+
+  if (hasUnavailableSignal) return true
+
+  const focus = getWorkTypeFocus(source)
+
+  if (focus) {
+    return !hasWorkTitleSignal(text, source) || !hasWorkSpecificSignal(text) || !hasCuratedWorkCoreSignal(text, source)
+  }
+
+  return false
+}
+
 // Keep this deterministic. A model-based classifier would add another slow call before generation.
 function getTopicGroundingDecision(source: string): TopicGroundingDecision {
   const raw = source.trim()
@@ -2030,7 +2367,7 @@ function getGeminiGroundingModel() {
 async function fetchGeminiGroundedSummary(
   source: string,
   tokenUsage?: TokenUsageAccumulator,
-  options: { sourceKind?: SourceKind } = {}
+  options: { searchHints?: string[]; sourceKind?: SourceKind } = {}
 ): Promise<string> {
   const apiKey = getGeminiApiKey()
   if (!apiKey) return ""
@@ -2039,6 +2376,13 @@ async function fetchGeminiGroundedSummary(
   const workTypeFocusInstruction = getWorkTypeFocusInstruction(source)
   const isUrlSource = options.sourceKind === "url" || isUrl(source)
   const hasWorkTypeFocus = Boolean(workTypeFocusInstruction)
+  const searchHintInstruction =
+    options.searchHints && options.searchHints.length > 0
+      ? [
+          "다음 검색어 조합을 실제로 확인한 뒤, 가장 구체적인 작품 정보를 기준으로 요약하세요:",
+          ...options.searchHints.map((hint, index) => `${index + 1}. ${hint}`),
+        ].join("\n")
+      : ""
   const groundingInstruction = isUrlSource
     ? [
         `"${source}" URL의 기사/아티클 본문을 우선 확인하여 요약하세요.`,
@@ -2055,6 +2399,7 @@ async function fetchGeminiGroundedSummary(
         "인물이면 현재 직위·소속·역할과 최근 주요 활동을 포함하세요.",
         "스포츠 팀·선수이면 최근 성적, 현재 순위, 주요 경기 결과를 구체적으로 포함하세요.",
         "작품(드라마·영화·소설·웹툰 등)이면 제목을 해석하거나 줄거리를 지어내지 말고, 공식 소개나 신뢰할 수 있는 작품 정보에서 확인한 줄거리·배경·등장인물·주요 배우·감독·플랫폼·방영/개봉 시기를 가져오세요. 출처마다 회차·공개일 같은 세부 수치가 충돌하면 확실한 사실 위주로 쓰고 불확실한 수치는 단정하지 마세요.",
+        searchHintInstruction,
       ]
 
   try {
@@ -2075,7 +2420,7 @@ async function fetchGeminiGroundedSummary(
                     ...groundingInstruction,
                     "확인된 수치·날짜·순위·성적은 구성 요소를 빠짐없이 그대로 기재하세요. 스포츠 기록은 승·무·패를 모두 포함하고, 득표율·순위·재정 수치도 원문 그대로 유지하세요. 검색 기준 시점을 명시하세요.",
                     "모든 문장은 주어와 맥락을 갖춘 완성문으로 쓰세요. '5배인 상황에서'처럼 무엇이 5배인지 앞부분이 사라진 숫자 조각이나 중간 문장으로 시작하지 마세요.",
-                    "검색 결과가 제한적이더라도 찾은 사실만 간략히 기술하세요. '정보를 제공할 수 없습니다', '검색 결과가 불충분합니다', '추가 정보가 필요합니다' 같은 거부 표현은 절대 쓰지 마세요.",
+                    "검색 결과가 제한적이더라도 찾은 사실만 간략히 기술하세요. '정보를 제공할 수 없습니다', '검색 결과가 불충분합니다', '검색 기반 자료가 불완전합니다', '상세 정보가 공개되면', '추가 정보가 필요합니다' 같은 거부 표현은 절대 쓰지 마세요.",
                     "요약만 출력하세요. 1000자 이내.",
                   ]
                     .filter(Boolean)
@@ -2100,13 +2445,117 @@ async function fetchGeminiGroundedSummary(
     tokenUsage?.add(getGeminiTokenUsage(payload, model))
     const text = getGeminiText(payload).trim()
     const isDisclaimer =
-      /정보를 제공할 수 없|검색 결과가 불충분|추가 정보가 필요|찾을 수 없습니다|확인되지 않습니다|제공하기 어렵|알 수 없습니다/.test(
+      /정보를 제공할 수 없|검색 결과가 불충분|검색 기반 자료가 불완전|정보가 부족|상세 정보가 공개|추가 정보가 필요|찾을 수 없습니다|확인되지 않습니다|제공하기 어렵|알 수 없습니다/.test(
         text
       ) && text.length < 300
     return isDisclaimer ? "" : text
   } catch {
     return ""
   }
+}
+
+type TopicGroundingProvider = "gemini_web_search" | "jina_search" | "verified_work_reference" | "wikipedia_search"
+
+type TopicGroundingSummaryResult = {
+  provider: TopicGroundingProvider
+  summary: string
+}
+
+async function fetchWorkSearchGrounding(source: string) {
+  const searchHints = getWorkGroundingSearchHints(source)
+  const candidates = await Promise.allSettled(
+    searchHints.map(async (query) => {
+      const content = await fetchJinaSearchContent(query)
+      return buildWorkGroundingCandidate(content, source)
+    })
+  )
+
+  return selectBestWorkGroundingContent(candidates)
+}
+
+async function fetchWikipediaWorkGrounding(source: string) {
+  const queries = getWikipediaWorkGroundingQueries(source)
+  const candidates = await Promise.allSettled(
+    queries.map(async ({ language, query }) => {
+      const content = await fetchWikipediaSearchContent(query, language)
+      return buildWorkGroundingCandidate(content, source)
+    })
+  )
+
+  return selectBestWorkGroundingContent(candidates)
+}
+
+async function fetchAuxiliaryWorkGrounding(source: string): Promise<TopicGroundingSummaryResult | null> {
+  if (!getWorkTypeFocus(source)) return null
+
+  const searchGrounding = await fetchWorkSearchGrounding(source)
+
+  if (searchGrounding) {
+    return {
+      provider: "jina_search",
+      summary: searchGrounding,
+    }
+  }
+
+  const wikipediaGrounding = await fetchWikipediaWorkGrounding(source)
+
+  if (wikipediaGrounding) {
+    return {
+      provider: "wikipedia_search",
+      summary: wikipediaGrounding,
+    }
+  }
+
+  const curatedReference = getCuratedWorkGroundingReference(source)
+
+  if (curatedReference) {
+    return {
+      provider: "verified_work_reference",
+      summary: curatedReference,
+    }
+  }
+
+  return null
+}
+
+async function fetchTopicGroundedSummary(
+  source: string,
+  tokenUsage?: TokenUsageAccumulator
+): Promise<TopicGroundingSummaryResult | null> {
+  const auxiliaryGrounding = await fetchAuxiliaryWorkGrounding(source)
+
+  if (auxiliaryGrounding) {
+    return auxiliaryGrounding
+  }
+
+  const initialSummary = await fetchGeminiGroundedSummary(source, tokenUsage, { sourceKind: "topic" })
+
+  if (!isWeakGroundingSummary(initialSummary, source)) {
+    return {
+      provider: "gemini_web_search",
+      summary: initialSummary,
+    }
+  }
+
+  const searchHints = getWorkGroundingSearchHints(source)
+
+  if (searchHints.length === 0) {
+    return null
+  }
+
+  const retriedSummary = await fetchGeminiGroundedSummary(source, tokenUsage, {
+    searchHints,
+    sourceKind: "topic",
+  })
+
+  if (!isWeakGroundingSummary(retriedSummary, source)) {
+    return {
+      provider: "gemini_web_search",
+      summary: retriedSummary,
+    }
+  }
+
+  return null
 }
 
 async function compressContentWithGemini(
@@ -2365,12 +2814,37 @@ async function generateTopicRawWithoutWebSearch(source: string, tokenUsage?: Tok
   return getResponseText(retryResponse.content)
 }
 
+async function generateTopicRawFromResolvedInput(modelInput: string, tokenUsage?: TokenUsageAccumulator) {
+  const model = getInitialGenerationModel()
+  const retryResponse = await client.messages.create({
+    model,
+    max_tokens: groundedGenerationMaxTokens,
+    temperature: 0.25,
+    system: getCachedSystemPrompt(SYSTEM_PROMPT),
+    messages: [
+      {
+        role: "user",
+        content: [
+          modelInput,
+          "이전 응답이 JSON으로 완성되지 않았습니다.",
+          "이번에는 반드시 JSON 객체 하나만 반환하세요. 코드블록 금지.",
+          "summary는 6줄 이내로 짧게 쓰고, questions/reflections는 각각 정확히 3개만 씁니다.",
+          "검색 기반 참고 내용의 핵심 사실은 유지하되 설명을 늘리지 마세요.",
+        ].join("\n\n"),
+      },
+    ],
+  })
+
+  tokenUsage?.add(getAnthropicTokenUsage(retryResponse, model))
+  return getResponseText(retryResponse.content)
+}
+
 function getInitialGenerationModel() {
   return fastGenerationModel
 }
 
 function getGenerationMaxTokens(sourceKind: SourceKind, forceWebSearch: boolean, useGeminiGrounding: boolean) {
-  if (forceWebSearch && !useGeminiGrounding) return groundedGenerationMaxTokens
+  if (forceWebSearch || useGeminiGrounding) return groundedGenerationMaxTokens
   if (sourceKind === "url" || sourceKind === "youtube") return urlGenerationMaxTokens
   return generationMaxTokens
 }
@@ -3011,7 +3485,7 @@ export async function POST(request: Request) {
   const forceTopicWebSearch = topicGroundingDecision?.useWebSearch ?? false
   const isCurrentFact = topicGroundingDecision?.reason === "gemini_router_current_fact"
   let cacheExpiresAt = getQuestionCacheExpiresAt(source, sourceKind, forceTopicWebSearch, isCurrentFact)
-  let factProvider: "claude_web_search" | "gemini_web_search" | null = null
+  let factProvider: "claude_web_search" | TopicGroundingProvider | null = null
   let factGroundingStatus: "partial" | null = null
   let responseUseWebSearch = forceTopicWebSearch
   let retriedTopicWithoutWebSearch = false
@@ -3052,12 +3526,12 @@ export async function POST(request: Request) {
       content = qraftKnowledgeReference
       contentResolved = true
     } else if (forceTopicWebSearch) {
-      const geminiGrounding = await fetchGeminiGroundedSummary(source, tokenUsage, { sourceKind })
-      if (geminiGrounding) {
-        content = geminiGrounding
+      const topicGrounding = await fetchTopicGroundedSummary(source, tokenUsage)
+      if (topicGrounding) {
+        content = topicGrounding.summary
         contentResolved = true
         useGeminiGrounding = true
-        factProvider = "gemini_web_search"
+        factProvider = topicGrounding.provider
         factGroundingStatus = "partial"
       } else {
         content = source
@@ -3260,7 +3734,42 @@ export async function POST(request: Request) {
       raw: raw.slice(0, 500),
     })
 
-    if (!retriedTopicWithoutWebSearch) {
+    if (contentResolved && content.trim().length > 0) {
+      try {
+        const retryPayload = parseQuestionPayload(await generateTopicRawFromResolvedInput(modelInput, tokenUsage))
+
+        if (retryPayload.hasCompleteModelPayload) {
+          hasCompleteModelPayload = true
+          questions = retryPayload.questions
+          reflections = retryPayload.reflections
+          summary = retryPayload.summary
+        }
+      } catch (retryError) {
+        console.error("Qraft topic grounded retry after incomplete response failed", retryError)
+
+        if (isTokenExhaustedError(retryError)) {
+          await notifyTokenExhausted({ mode: "generate", sourceKind, request, error: retryError })
+          await recordQuestionGenerationEvent({
+            mode: "generate",
+            sourceKind,
+            sourceText: source,
+            topicGroundingDecision,
+            useWebSearch: forceTopicWebSearch,
+            factProvider,
+            factGroundingStatus,
+            generationSuccess: false,
+            latencyMs: getLatencyMs(),
+            errorCode: TOKEN_EXHAUSTED_CODE,
+            previousQuestionCount: previousQuestions.length,
+            request,
+            tokenUsage: tokenUsage.snapshot(),
+          })
+          return tokenExhaustedResponse()
+        }
+      }
+    }
+
+    if (!hasCompleteModelPayload && !forceTopicWebSearch && !retriedTopicWithoutWebSearch) {
       try {
         const retryPayload = parseQuestionPayload(await generateTopicRawWithoutWebSearch(source, tokenUsage))
         retriedTopicWithoutWebSearch = true

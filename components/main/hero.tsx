@@ -2215,6 +2215,15 @@ export default function Hero() {
     setPersonalNoteDrafts((currentDrafts) => new Map(currentDrafts).set(questionKey, note.slice(0, personalNoteMaxLength)))
   }
 
+  const scrollPersonalNoteInputIntoView = (index: number) => {
+    window.setTimeout(() => {
+      personalNoteInputRefs.current.get(index)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      })
+    }, 260)
+  }
+
   const savePersonalNote = async (question: string, questionIndex: number) => {
     const questionKey = getCurrentQuestionKey(question)
     const draft = (personalNoteDrafts.get(questionKey) ?? "").trim()
@@ -2478,7 +2487,7 @@ export default function Hero() {
       className={
         `${isLanding
           ? "relative min-h-screen w-full overflow-x-hidden bg-[#120b07]"
-          : "relative h-screen w-full overflow-hidden bg-[#120b07]"
+          : "relative h-[100dvh] w-full overflow-hidden bg-[#120b07]"
         } ${pauseCssMotion ? "qraft-motion-rested" : ""}`
       }
     >
@@ -2998,7 +3007,7 @@ export default function Hero() {
             ? "relative z-10 flex min-h-screen flex-col items-center text-center"
             : `absolute inset-0 z-10 flex flex-col items-center px-6 text-center ${
                 isReady
-                  ? "pointer-events-auto justify-start overflow-y-auto overscroll-contain py-20 sm:py-24 [-webkit-overflow-scrolling:touch]"
+                  ? "pointer-events-auto justify-start overflow-y-auto overscroll-contain pb-[calc(11rem+env(safe-area-inset-bottom))] pt-20 sm:py-24 [-webkit-overflow-scrolling:touch]"
                   : "pointer-events-none justify-center"
               }`
         }
@@ -3088,7 +3097,7 @@ export default function Hero() {
                         name="source"
                         placeholder="링크 또는 주제를 입력해주세요"
                         onFocus={trackQuestionInputFocus}
-                        className="h-12 w-full min-w-0 rounded-none border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.16] px-4 pr-14 text-lg font-normal text-[#f5dfbd]/90 shadow-[0_10px_30px_rgba(13,8,5,0.32)] outline-none backdrop-blur-md transition-colors duration-700 placeholder:text-[#efd3a2]/70 focus:border-[#d9ad73]/55 focus:bg-[#f5dfbd]/[0.19] sm:flex-1 sm:pr-4 [&::placeholder]:text-sm"
+                        className="h-12 w-full min-w-0 rounded-none border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.16] px-4 pr-14 text-lg font-normal text-[#f5dfbd]/90 shadow-[0_10px_30px_rgba(13,8,5,0.32)] outline-none backdrop-blur-md transition-colors duration-700 placeholder:text-[#efd3a2]/70 focus:border-[#d9ad73]/55 focus:bg-[#f5dfbd]/[0.19] sm:flex-1 sm:pr-4 [&::placeholder]:text-[13px] sm:[&::placeholder]:text-sm"
                       />
                       <button
                         type="submit"
@@ -3589,10 +3598,11 @@ export default function Hero() {
                               }}
                               value={personalNoteDraft}
                               onChange={(event) => updatePersonalNote(q, event.target.value)}
+                              onFocus={() => scrollPersonalNoteInputIntoView(i)}
                               maxLength={personalNoteMaxLength}
                               rows={4}
                               placeholder="이 질문에 대한 내 생각을 남겨보세요."
-                              className={`${personalNoteEntries.length > 0 ? "mt-4" : "mt-3"} min-h-28 w-full resize-none border border-[#d9ad73]/16 bg-[#120b07]/46 px-3 py-3 text-base font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/42 sm:text-sm`}
+                              className={`${personalNoteEntries.length > 0 ? "mt-4" : "mt-3"} min-h-28 w-full resize-none border border-[#d9ad73]/16 bg-[#120b07]/46 px-3 py-3 text-base font-medium leading-[1.7] text-[#f5dfbd]/78 outline-none transition-colors duration-300 placeholder:text-[13px] placeholder:text-[#d2ad7c]/34 focus:border-[#d9ad73]/42 sm:text-sm sm:placeholder:text-sm`}
                             />
                             <div className="mt-3 flex items-center justify-between gap-4">
                               <span className="font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-[#d2ad7c]/36">
@@ -3662,7 +3672,7 @@ export default function Hero() {
                       name="source"
                       placeholder="링크 또는 주제를 입력해주세요"
                       onFocus={trackQuestionInputFocus}
-                      className="h-12 w-full min-w-0 rounded-none border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.16] px-4 pr-14 text-lg font-normal text-[#f5dfbd]/90 shadow-[0_10px_30px_rgba(13,8,5,0.32)] outline-none backdrop-blur-md transition-colors duration-700 placeholder:text-[#efd3a2]/70 focus:border-[#d9ad73]/55 focus:bg-[#f5dfbd]/[0.19] sm:flex-1 sm:pr-4 [&::placeholder]:text-sm"
+                      className="h-12 w-full min-w-0 rounded-none border border-[#d9ad73]/30 bg-[#f5dfbd]/[0.16] px-4 pr-14 text-lg font-normal text-[#f5dfbd]/90 shadow-[0_10px_30px_rgba(13,8,5,0.32)] outline-none backdrop-blur-md transition-colors duration-700 placeholder:text-[#efd3a2]/70 focus:border-[#d9ad73]/55 focus:bg-[#f5dfbd]/[0.19] sm:flex-1 sm:pr-4 [&::placeholder]:text-[13px] sm:[&::placeholder]:text-sm"
                     />
                     <button
                       type="submit"

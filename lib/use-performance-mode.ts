@@ -10,19 +10,14 @@ type NavigatorPerformanceSignals = Navigator & {
     saveData?: boolean
   }
   deviceMemory?: number
-  userAgentData?: {
-    brands?: Array<{ brand: string; version: string }>
-  }
 }
 
-const SHADER_MODE_SESSION_KEY = "qraft_shader_mode_v4"
+const SHADER_MODE_SESSION_KEY = "qraft_shader_mode_v3"
 const SHADER_MODE_OVERRIDE_PARAM = "qraft_bg"
 const FPS_SAMPLE_DURATION_MS = 900
-const CHROMIUM_FPS_SAMPLE_DURATION_MS = 1400
 const FULL_MODE_WARMUP_DELAY_MS = 180
 const FULL_MODE_ENHANCE_DURATION_MS = 3200
 const FPS_FULL_THRESHOLD = 55
-const CHROMIUM_FPS_FULL_THRESHOLD = 58
 const FPS_FROZEN_THRESHOLD = 40
 
 function isConstrainedDevice() {
@@ -47,19 +42,6 @@ function isCompactTouchViewport() {
   if (typeof window === "undefined") return false
 
   return window.matchMedia("(max-width: 767px), (hover: none) and (pointer: coarse)").matches
-}
-
-function isChromiumBrowser() {
-  if (typeof navigator === "undefined") return false
-
-  const performanceNavigator = navigator as NavigatorPerformanceSignals
-  const brands = performanceNavigator.userAgentData?.brands ?? []
-
-  if (brands.length > 0) {
-    return brands.some(({ brand }) => /Chromium|Google Chrome/i.test(brand))
-  }
-
-  return /Chrome|Chromium|CriOS/i.test(navigator.userAgent)
 }
 
 function isBackgroundMotionMode(value: string | null): value is BackgroundMotionMode {
@@ -92,17 +74,8 @@ function writeShaderModeCache(mode: BackgroundMotionMode) {
   } catch {}
 }
 
-function getFpsConfig() {
-  const chromium = isChromiumBrowser()
-
-  return {
-    fullThreshold: chromium ? CHROMIUM_FPS_FULL_THRESHOLD : FPS_FULL_THRESHOLD,
-    sampleDurationMs: chromium ? CHROMIUM_FPS_SAMPLE_DURATION_MS : FPS_SAMPLE_DURATION_MS,
-  }
-}
-
-function getModeFromFps(fps: number, fullThreshold: number): BackgroundMotionMode {
-  if (fps >= fullThreshold) return "full"
+function getModeFromFps(fps: number): BackgroundMotionMode {
+  if (fps >= FPS_FULL_THRESHOLD) return "full"
   if (fps < FPS_FROZEN_THRESHOLD) return "frozen"
   return "reduced"
 }
@@ -180,7 +153,6 @@ export function usePerformanceMode() {
     let rafId: number
     let startTs: number | null = null
     let frames = 0
-    const fpsConfig = getFpsConfig()
 
     const measure = (ts: number) => {
       if (startTs === null) {
@@ -192,13 +164,13 @@ export function usePerformanceMode() {
       frames += 1
       const elapsed = ts - startTs
 
-      if (elapsed < fpsConfig.sampleDurationMs) {
+      if (elapsed < FPS_SAMPLE_DURATION_MS) {
         rafId = window.requestAnimationFrame(measure)
         return
       }
 
       const fps = (frames * 1000) / elapsed
-      const nextMode = getModeFromFps(fps, fpsConfig.fullThreshold)
+      const nextMode = getModeFromFps(fps)
       writeShaderModeCache(nextMode)
 
       if (nextMode === "full") {

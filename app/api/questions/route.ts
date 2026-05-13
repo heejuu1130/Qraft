@@ -5,7 +5,6 @@ import { createRouteClient } from "@/lib/supabase/route"
 import { normalizeQuestionEndingTone } from "@/lib/question-tone"
 
 const client = new Anthropic({ timeout: 30000 })
-const sonnetGenerationModel = "claude-sonnet-4-6"
 const fastGenerationModel = "claude-haiku-4-5"
 const contentCharacterLimit = 8000
 const jinaReaderTimeoutMs = 12000
@@ -24,7 +23,6 @@ const geminiPreSummarizeTimeoutMs = 8000
 const compressedContentLimit = 2000
 const regenerationMaxTokens = 950
 const previousQuestionLimit = 8
-const topicWebSearchMaxUses = 1
 const questionRateLimitWindowMs = 60 * 60 * 1000
 const questionRateLimitMaxRequests = 30
 const questionRateLimitMaxEntries = 1000
@@ -2010,7 +2008,7 @@ async function generateTopicRawWithoutWebSearch(source: string, tokenUsage?: Tok
     resolved: Boolean(qraftKnowledgeReference),
     forceWebSearch: false,
   })
-  const model = getInitialGenerationModel("topic", false)
+  const model = getInitialGenerationModel()
   const retryResponse = await client.messages.create({
     model,
     max_tokens: generationMaxTokens,
@@ -2023,11 +2021,7 @@ async function generateTopicRawWithoutWebSearch(source: string, tokenUsage?: Tok
   return getResponseText(retryResponse.content)
 }
 
-function getInitialGenerationModel(sourceKind: SourceKind, forceWebSearch: boolean) {
-  if (forceWebSearch) {
-    return sonnetGenerationModel
-  }
-
+function getInitialGenerationModel() {
   return fastGenerationModel
 }
 

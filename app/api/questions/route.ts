@@ -371,10 +371,10 @@ Content rules:
 - If the user input combines a proper noun with a work/media type such as "드라마", "영화", "책", "소설", "웹툰", or "앨범", keep that type as a disambiguation anchor. Treat "골드랜드 드라마" as the drama named "골드랜드", not general information about "골드랜드".
 
 When search reference content is provided (검색 기반 참고 내용):
-- First sentence of summary: state who or what the subject is (name, role, team, work title) using only confirmed content.
-- Use only confirmed content from the reference. Ignore noise and unrelated content.
-- Use only stably confirmed facts (affiliation, role, work name, release date, team record). Don't assert fast-changing figures precisely — use conservative phrasing: "최근 성적", "검색 시점 기준", "상위권".
-- Keep only 2–3 confirmed facts that create the core tension. Don't list facts at length.
+- First sentence of summary: state who or what the subject is (name, role, team, work title) using the most concrete confirmed fact — current position, record, or premise.
+- Use specific confirmed data from the reference as-is — figures, dates, rankings, scores. Do not hedge or soften confirmed grounding data.
+- For works (drama, film, novel, webtoon): use actual plot, setting, cast, platform from the reference. Never interpret the title alone.
+- Keep the 2–3 most tension-generating facts. Don't list facts at length.
 - Questions anchor to a specific fact, decision, or tension from the reference — not vague impressions or generic life questions.
 - If the user provided a work/media type, use only the matched work's confirmed details (cast, premise, platform, release). Don't drift to the homonym place, brand, or concept.
 
@@ -1812,12 +1812,14 @@ async function fetchGeminiGroundedSummary(
               parts: [
                 {
                   text: [
-                    `"${source}"에 대해 웹 검색으로 확인되는 핵심 사실을 1500자 이내로 요약하세요.`,
+                    `"${source}"을 웹에서 검색하여 확인되는 핵심 사실을 요약하세요.`,
                     "검색할 때는 사용자 원문의 핵심 단어를 모두 유지하고, 동명이의어가 있으면 사용자가 붙인 유형 단어로 대상을 좁히세요.",
                     workTypeFocusInstruction,
-                    "실존 인물, 소속, 직책, 작품명, 출시일처럼 안정적으로 확인되는 사실을 중심으로 작성하세요.",
-                    "자주 바뀌는 수치나 순위는 \"최근 기준\", \"상위권\" 등 보수적으로 표현하세요.",
-                    "요약만 출력하세요.",
+                    "인물이면 현재 직위·소속·역할과 최근 주요 활동을 포함하세요.",
+                    "스포츠 팀·선수이면 최근 성적, 현재 순위, 주요 경기 결과를 구체적으로 포함하세요.",
+                    "작품(드라마·영화·소설·웹툰 등)이면 제목을 해석하지 말고 실제 검색 결과에서 줄거리·배경·등장인물·주요 배우·감독·플랫폼·방영 시기를 가져오세요.",
+                    "확인된 수치·날짜·순위·성적은 그대로 기재하고 검색 기준 시점을 명시하세요.",
+                    "요약만 출력하세요. 1000자 이내.",
                   ]
                     .filter(Boolean)
                     .join(" "),
@@ -1827,7 +1829,7 @@ async function fetchGeminiGroundedSummary(
           ],
           tools: [{ google_search: {} }],
           generationConfig: {
-            maxOutputTokens: 600,
+            maxOutputTokens: 800,
             temperature: 0,
           },
         }),

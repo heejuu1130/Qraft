@@ -2,6 +2,10 @@ import mixpanel from "mixpanel-browser"
 import { shouldDisableClientAnalytics } from "@/lib/analytics-env"
 
 type MixpanelProperties = Record<string, unknown>
+type MixpanelTrackOptions = {
+  transport?: "xhr" | "sendBeacon"
+  send_immediately?: boolean
+}
 
 const mixpanelToken = process.env.NEXT_PUBLIC_MIXPANEL_TOKEN?.trim()
 let initialized = false
@@ -39,10 +43,10 @@ function initMixpanel() {
   return true
 }
 
-export function mixpanelTrack(name: string, properties?: MixpanelProperties) {
+export function mixpanelTrack(name: string, properties?: MixpanelProperties, options?: MixpanelTrackOptions) {
   if (!initMixpanel()) return
 
-  mixpanel.track(name, cleanProperties(properties) ?? {})
+  mixpanel.track(name, cleanProperties(properties) ?? {}, options)
 }
 
 export function mixpanelIdentify(userId: string, properties?: MixpanelProperties) {

@@ -65,6 +65,7 @@ function send(name: string, params?: Record<string, unknown>) {
   if (typeof window === "undefined") return false
   if (shouldDisableClientAnalytics()) return false
 
+  const useBeaconTransport = params?.transport_type === "beacon"
   const pageParams = {
     page_location: window.location.href,
     page_path: window.location.pathname,
@@ -76,7 +77,11 @@ function send(name: string, params?: Record<string, unknown>) {
   }
 
   try {
-    mixpanelTrack(name, eventParams)
+    mixpanelTrack(
+      name,
+      eventParams,
+      useBeaconTransport ? { transport: "sendBeacon", send_immediately: true } : undefined
+    )
   } catch (error) {
     warnAnalyticsSkipped("Mixpanel tracking skipped", error)
   }

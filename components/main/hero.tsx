@@ -167,7 +167,7 @@ const ownershipQuestionLines = [
 const ownershipBody =
   "기록학자 김익한 교수는 독서의 본질이 '정보의 소유'가 아닌 '존재의 변화'에 있다고 말합니다. 우리는 매일 수많은 링크와 아티클을 수집하며 지적 포만감을 느끼지만, 멈춰서 사유하지 않는 정보는 결코 내 것이 되지 못한 채 쌓여갈 뿐입니다."
 const ownershipQuote =
-  "\"소유는 ‘내 밖에 쌓아 두는 것’입니다. 존재는 ‘내 안으로 들여 나의 일부로 만드는 것’이에요. 정리하면 ‘세상 만물을 내 밖에 두느냐, 내 안에 들이느냐’입니다.\""
+  "\"소유는 ‘내 밖에 쌓아 두는 것\u2009’입니다. 존재는 ‘내 안으로 들여 나의 일부로 만드는 것\u2009’이에요. 정리하면 ‘세상 만물을 내 밖에 두느냐, 내 안에 들이느냐\u2009’입니다.\""
 const ownershipClosing =
   "Qraft는 이 철학을 바탕으로 설계되었습니다. 단순히 정보를 저장하는 관성을 잠시 멈추고, 텍스트와 대면하여 당신이라는 존재가 확장되는 사유의 순간을 제공합니다."
 const silentRecordQuote =
@@ -411,6 +411,15 @@ const getQuestionMemoryKey = (question: string) =>
 type LoadingQuestionSample = {
   sourceTitle: string
   question: string
+}
+
+type ResultViewSession = {
+  startedAt: number
+  signedIn: boolean
+  sourceType: string
+  sourceLengthBucket: string
+  questionCount: number
+  reflectionCount: number
 }
 
 const mergeQuestionMemory = (...questionGroups: string[][]) => {
@@ -685,6 +694,7 @@ export default function Hero() {
   const personalNoteInputRefs = useRef<Map<number, HTMLTextAreaElement | null>>(new Map())
   const processSectionActiveRef = useRef(false)
   const hideLandingScrollCueRef = useRef(false)
+  const resultViewSessionRef = useRef<ResultViewSession | null>(null)
   const step1TimerRef = useRef<number | undefined>(undefined)
   const slowNoticeTimerRef = useRef<number | undefined>(undefined)
 
@@ -819,6 +829,68 @@ export default function Hero() {
   const currentLoadingQuestion =
     loadingQuestionCandidates[loadingQuestionSampleIndex % Math.max(loadingQuestionCandidates.length, 1)] ??
     fallbackLoadingQuestions[0]
+
+  const startResultViewSession = useCallback(() => {
+    if (resultViewSessionRef.current || !lastSource || questions.length === 0) return
+
+    resultViewSessionRef.current = {
+      startedAt: window.performance.now(),
+      signedIn: Boolean(user),
+      sourceType: getSourceType(lastSource),
+      sourceLengthBucket: getLengthBucket(lastSource),
+      questionCount: questions.length,
+      reflectionCount: reflections.length,
+    }
+  }, [lastSource, questions.length, reflections.length, user])
+
+  const flushResultViewSession = useCallback((exitReason: string) => {
+    const session = resultViewSessionRef.current
+    if (!session) return
+
+    resultViewSessionRef.current = null
+    const durationMs = Math.max(0, Math.round(window.performance.now() - session.startedAt))
+
+    gtag.resultViewDuration({
+      duration_ms: durationMs,
+      duration_seconds: Number((durationMs / 1000).toFixed(2)),
+      exit_reason: exitReason,
+      signed_in: session.signedIn,
+      source_type: session.sourceType,
+      source_length_bucket: session.sourceLengthBucket,
+      question_count: session.questionCount,
+      reflection_count: session.reflectionCount,
+      transport_type: "beacon",
+    })
+  }, [])
+
+  useEffect(() => {
+    const resultVisible = isReady && pageVisible && lastSource && questions.length > 0
+
+    if (resultVisible) {
+      startResultViewSession()
+      return
+    }
+
+    flushResultViewSession(pageVisible ? "state_changed" : "page_hidden")
+  }, [
+    flushResultViewSession,
+    isReady,
+    lastSource,
+    pageVisible,
+    questions.length,
+    startResultViewSession,
+  ])
+
+  useEffect(() => {
+    const handlePageHide = () => flushResultViewSession("pagehide")
+
+    window.addEventListener("pagehide", handlePageHide)
+
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide)
+      flushResultViewSession("component_unmount")
+    }
+  }, [flushResultViewSession])
 
   useEffect(() => {
     const resetTimer = window.setTimeout(() => setLoadingQuestionSampleIndex(0), 0)
@@ -3141,9 +3213,9 @@ export default function Hero() {
                         type="button"
                         onClick={openServiceHelp}
                         aria-label="Qraft 설명 보기"
-                        className="relative h-5 w-5 shrink-0 rounded-full border border-[#d9ad73]/32 bg-[#f5dfbd]/[0.08] font-mono text-[11px] font-semibold leading-none text-[#efd3a2]/62 shadow-[0_8px_20px_rgba(13,8,5,0.24)] backdrop-blur-md transition-colors duration-300 hover:border-[#efd3a2]/62 hover:bg-[#f5dfbd]/[0.14] hover:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/78"
+                        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-[#d9ad73]/32 bg-[#f5dfbd]/[0.08] font-mono text-[11px] font-semibold leading-none text-[#efd3a2]/62 shadow-[0_8px_20px_rgba(13,8,5,0.24)] backdrop-blur-md transition-colors duration-300 hover:border-[#efd3a2]/62 hover:bg-[#f5dfbd]/[0.14] hover:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/78"
                       >
-                        <span className="absolute left-1/2 top-1/2 -translate-x-[calc(50%-0.5px)] -translate-y-[48%] leading-none" aria-hidden="true">
+                        <span className="block leading-none" aria-hidden="true">
                           ?
                         </span>
                       </button>

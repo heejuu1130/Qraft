@@ -133,6 +133,7 @@ export const gtag = {
   resultReflectionToggle: (params?: Record<string, unknown>) => send("result_reflection_toggle", params),
   resultNewQuestionOpen: (params?: Record<string, unknown>) => send("result_new_question_open", params),
   resultNewQuestionSubmit: (params?: Record<string, unknown>) => send("result_new_question_submit", params),
+  resultViewDuration: (params?: Record<string, unknown>) => send("result_view_duration", params),
   feedbackOpen: (params?: Record<string, unknown>) => send("feedback_open", params),
   feedbackRatingSelect: (params?: Record<string, unknown>) => send("feedback_rating_select", params),
   feedbackSubmitSuccess: (params?: Record<string, unknown>) => send("feedback_submit_success", params),

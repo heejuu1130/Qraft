@@ -66,6 +66,7 @@ Value Moment: `question_generate_success`, fired after questions are successfull
 | `question_save_intent` | User tries to save a generated question | `signed_in`, `question_index` |
 | `question_save` | Question save succeeds | `question_index` |
 | `question_unsave` | Question unsave succeeds | `question_index` |
+| `page_view_duration` | A tracked page stops being visible | `duration_ms`, `duration_seconds`, `exit_reason`, `tracked_page_path` |
 | `feedback_open` | Feedback modal opens | context properties |
 | `feedback_rating_select` | User selects a star rating | `rating` |
 | `feedback_submit_success` | Feedback submission succeeds | feedback metadata |

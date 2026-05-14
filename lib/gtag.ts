@@ -134,6 +134,7 @@ export const gtag = {
   questionSave: (params?: Record<string, unknown>) => send("question_save", params),
   questionUnsave: (params?: Record<string, unknown>) => send("question_unsave", params),
   landingVisit: () => send("landing_visit", { landing_path: window.location.pathname, value: 1 }),
+  pageViewDuration: (params?: Record<string, unknown>) => send("page_view_duration", params),
   resultSummaryToggle: (params?: Record<string, unknown>) => send("result_summary_toggle", params),
   resultReflectionToggle: (params?: Record<string, unknown>) => send("result_reflection_toggle", params),
   resultNewQuestionOpen: (params?: Record<string, unknown>) => send("result_new_question_open", params),

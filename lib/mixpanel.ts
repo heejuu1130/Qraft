@@ -49,6 +49,10 @@ export function mixpanelTrack(name: string, properties?: MixpanelProperties, opt
   mixpanel.track(name, cleanProperties(properties) ?? {}, options)
 }
 
+export function mixpanelWarmup() {
+  initMixpanel()
+}
+
 export function mixpanelIdentify(userId: string, properties?: MixpanelProperties) {
   if (!initMixpanel()) return
 

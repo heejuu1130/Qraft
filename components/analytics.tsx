@@ -5,6 +5,7 @@ import { GoogleAnalytics } from "@next/third-parties/google"
 import { usePathname } from "next/navigation"
 import { shouldDisableClientAnalytics } from "@/lib/analytics-env"
 import { gtag } from "@/lib/gtag"
+import { mixpanelWarmup } from "@/lib/mixpanel"
 
 type AnalyticsProps = {
   googleAnalyticsId: string
@@ -59,6 +60,7 @@ export function Analytics({ googleAnalyticsId }: AnalyticsProps) {
   useEffect(() => {
     if (!enabled) return
 
+    mixpanelWarmup()
     startPageViewSession(pathname)
 
     return () => {
@@ -78,13 +80,16 @@ export function Analytics({ googleAnalyticsId }: AnalyticsProps) {
       flushPageViewSession("page_hidden")
     }
     const handlePageHide = () => flushPageViewSession("pagehide")
+    const handleBeforeUnload = () => flushPageViewSession("beforeunload")
 
     document.addEventListener("visibilitychange", handleVisibilityChange)
     window.addEventListener("pagehide", handlePageHide)
+    window.addEventListener("beforeunload", handleBeforeUnload)
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange)
       window.removeEventListener("pagehide", handlePageHide)
+      window.removeEventListener("beforeunload", handleBeforeUnload)
       flushPageViewSession("component_unmount")
     }
   }, [enabled, flushPageViewSession, pathname, startPageViewSession])

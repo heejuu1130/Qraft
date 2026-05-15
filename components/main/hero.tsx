@@ -3213,11 +3213,30 @@ export default function Hero() {
                         type="button"
                         onClick={openServiceHelp}
                         aria-label="Qraft 설명 보기"
-                        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-[#d9ad73]/32 bg-[#f5dfbd]/[0.08] font-mono text-[11px] font-semibold leading-none text-[#efd3a2]/62 shadow-[0_8px_20px_rgba(13,8,5,0.24)] backdrop-blur-md transition-colors duration-300 hover:border-[#efd3a2]/62 hover:bg-[#f5dfbd]/[0.14] hover:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/78"
+                        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-[#d9ad73]/32 bg-[#f5dfbd]/[0.08] text-[#efd3a2]/62 shadow-[0_8px_20px_rgba(13,8,5,0.24)] backdrop-blur-md transition-colors duration-300 hover:border-[#efd3a2]/62 hover:bg-[#f5dfbd]/[0.14] hover:text-[#fff4dc] focus:outline-none focus-visible:border-[#efd3a2]/78"
                       >
-                        <span className="block leading-none" aria-hidden="true">
-                          ?
-                        </span>
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          aria-hidden="true"
+                          className="block"
+                        >
+                          <path
+                            d="M5.25 5.9C5.25 4.42 6.34 3.5 8.02 3.5C9.66 3.5 10.75 4.42 10.75 5.76C10.75 6.86 10.15 7.45 9.12 8.06C8.3 8.55 7.96 9.05 7.96 10.05V10.55"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="1.35"
+                          />
+                          <path
+                            d="M8 12.55H8.01"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeWidth="1.75"
+                          />
+                        </svg>
                       </button>
                     </div>
                     <div className="relative sm:flex sm:items-center sm:gap-3">

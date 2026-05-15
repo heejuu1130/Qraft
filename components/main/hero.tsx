@@ -3149,45 +3149,25 @@ export default function Hero() {
             <section className="relative flex min-h-screen w-full flex-col items-center justify-center px-6 pb-[12vh] pt-24">
               <div className="flex w-full flex-col items-center">
                 <h1
-                  className={`relative text-5xl font-medium leading-[1.1] tracking-normal drop-shadow-[0_8px_28px_rgba(13,8,5,0.28)] sm:text-[64px] ${
+                  className={`relative text-5xl font-medium leading-[1.1] tracking-normal text-[#f5dfbd]/90 sm:text-[64px] ${
                     shouldHideLandingIntro ? "opacity-0" : "opacity-100"
                   }`}
+                  style={{ textShadow: "0 10px 32px rgba(13, 8, 5, 0.28), 0 0 22px rgba(245, 223, 189, 0.08)" }}
                 >
-                  <span className="text-[#f5dfbd]/90 mix-blend-difference">
-                    <LandingDustText delay={360} shouldAnimate={shouldPlayLandingIntro} step={58} text={landingTitle} />
-                  </span>
-                  <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2] mix-blend-overlay">
-                    <LandingDustText
-                      decorative
-                      delay={360}
-                      shouldAnimate={shouldPlayLandingIntro}
-                      step={58}
-                      text={landingTitle}
-                    />
-                  </span>
+                  <LandingDustText delay={360} shouldAnimate={shouldPlayLandingIntro} step={58} text={landingTitle} />
                 </h1>
                 <p
-                  className={`relative mt-3 max-w-2xl text-sm font-medium leading-[1.7] tracking-normal sm:text-lg ${
+                  className={`relative mt-3 max-w-2xl text-sm font-medium leading-[1.7] tracking-normal text-[#f5dfbd]/65 sm:text-lg ${
                     shouldHideLandingIntro ? "opacity-0" : "opacity-100"
                   }`}
+                  style={{ textShadow: "0 8px 24px rgba(13, 8, 5, 0.24), 0 0 18px rgba(239, 211, 162, 0.06)" }}
                 >
-                  <span className="text-[#f5dfbd]/65 mix-blend-difference">
-                    <LandingDustText
-                      delay={780}
-                      shouldAnimate={shouldPlayLandingIntro}
-                      text={landingDisplayCopy}
-                      variant="soft"
-                    />
-                  </span>
-                  <span aria-hidden="true" className="absolute inset-0 text-[#efd3a2]/70 mix-blend-overlay">
-                    <LandingDustText
-                      decorative
-                      delay={780}
-                      shouldAnimate={shouldPlayLandingIntro}
-                      text={landingDisplayCopy}
-                      variant="soft"
-                    />
-                  </span>
+                  <LandingDustText
+                    delay={780}
+                    shouldAnimate={shouldPlayLandingIntro}
+                    text={landingDisplayCopy}
+                    variant="soft"
+                  />
                 </p>
 
                 <form

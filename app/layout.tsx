@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   description: "질문으로 시작하는 사유",
 };
 
-const googleAnalyticsId = process.env.NEXT_PUBLIC_GA_ID || "G-T3TCC34TS8";
+const googleAnalyticsId = process.env.NEXT_PUBLIC_GA_ID?.trim();
 
 export default function RootLayout({
   children,

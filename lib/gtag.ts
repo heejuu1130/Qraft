@@ -10,7 +10,7 @@ declare global {
 
 export type LoginProvider = "google" | "kakao"
 
-const googleAnalyticsId = process.env.NEXT_PUBLIC_GA_ID || "G-T3TCC34TS8"
+const googleAnalyticsId = process.env.NEXT_PUBLIC_GA_ID?.trim()
 
 function warnAnalyticsSkipped(label: string, error: unknown) {
   if (process.env.NODE_ENV !== "production") {

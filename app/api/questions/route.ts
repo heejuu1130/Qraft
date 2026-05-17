@@ -1414,6 +1414,53 @@ const FALLBACK_REFLECTIONS = [
   "이 물음은 쉽게 결론을 내리기보다 우리가 어떤 태도로 이 문제를 응시하는지 묻습니다. 무엇을 잃지 않으려 하는지 남겨볼 수 있습니다.",
 ]
 
+function cleanSummaryAnchor(line: string) {
+  const cleaned = line
+    .replace(/^\s*\d+\.\s*(?:쟁점|변화|생각할 점)\s*:\s*/u, "")
+    .replace(/["“”'‘’]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  const clause =
+    cleaned
+      .split(/[,.，。]/u)
+      .map((part) => part.trim())
+      .find((part) => part.length >= 6) ?? cleaned
+
+  return clause.length > 42 ? `${clause.slice(0, 42)}…` : clause
+}
+
+function getSummaryAnchors(summary: string) {
+  const lines = summary
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => cleanSummaryAnchor(line))
+    .filter(Boolean)
+
+  return {
+    context: lines[0] || "입력된 주제",
+    issue: lines.find((line) => /갈등|긴장|쟁점|전제|기준|충돌|문제/u.test(line)) || lines[1] || "핵심 맥락",
+    expansion: lines.find((line) => /변화|달라|잃|얻|남|확장|생각/u.test(line)) || lines[2] || "남는 질문",
+  }
+}
+
+function buildSummaryAnchoredFallback(summary: string) {
+  const { context, issue, expansion } = getSummaryAnchors(summary)
+
+  return {
+    questions: [
+      `${context}에서 먼저 구분해야 할 기준은 무엇일까요?`,
+      `${issue}을 판단할 때 가장 놓치기 쉬운 전제는 무엇일까요?`,
+      `${expansion}을 받아들일 때 무엇을 얻고 무엇을 잃게 될까요?`,
+    ],
+    reflections: [
+      "기준을 먼저 세우면 같은 주제도 덜 흐릿하게 보입니다. 무엇을 구분하느냐에 따라 질문의 방향도 달라질 수 있습니다.",
+      "전제는 대개 질문 뒤쪽에 숨어 있습니다. 답을 서두르기보다 무엇을 당연하게 놓고 있었는지 확인하게 됩니다.",
+      "무언가를 받아들이는 일에는 늘 남는 대가가 있습니다. 얻는 것만큼 잃는 것도 함께 볼 때 생각은 조금 더 오래 머뭅니다.",
+    ],
+  }
+}
+
 function buildUngroundedTopicFallback(source: string) {
   const topic = source.trim()
   const subject = topic ? `"${topic}"` : "이 주제"
@@ -1543,6 +1590,18 @@ function normalizeList(items: string[], fallback: string[]) {
       .slice(0, 3),
     ...fallback,
   ].slice(0, 3)
+}
+
+function isGenericGeneratedQuestion(question: string) {
+  const normalized = question.replace(/\s+/g, " ").trim()
+
+  return /(?:지금\s*)?가장 먼저 확인해야 할 쟁점|이 문제|이 변화|이 선택|이 상황|이 주제|어떤 의미인가요|어떻게 생각하나요|왜 중요할까요/u.test(
+    normalized
+  )
+}
+
+function hasGenericGeneratedQuestion(questions: string[]) {
+  return questions.some(isGenericGeneratedQuestion)
 }
 
 function normalizeReflections(items: string[], fallback: string[]) {
@@ -3306,6 +3365,7 @@ export async function POST(request: Request) {
   // 재생성 모드: 기존 요약으로 질문+고찰만 생성
   if (existingSummary) {
     let raw = ""
+    const regenerateFallback = buildSummaryAnchoredFallback(existingSummary)
     const regenerateInput = buildRegenerateModelInput(existingSummary, previousQuestions)
     const regenerateModel = fastGenerationModel
 
@@ -3352,11 +3412,11 @@ export async function POST(request: Request) {
         tokenUsage: tokenUsage.snapshot(),
       })
 
-      return Response.json({ questions: FALLBACK_QUESTIONS, reflections: FALLBACK_REFLECTIONS })
+      return Response.json(regenerateFallback)
     }
 
-    let questions: string[] = FALLBACK_QUESTIONS
-    let reflections: string[] = FALLBACK_REFLECTIONS
+    let questions: string[] = regenerateFallback.questions
+    let reflections: string[] = regenerateFallback.reflections
 
     try {
       const jsonMatch = raw.match(/\{[\s\S]*\}/)
@@ -3374,10 +3434,13 @@ export async function POST(request: Request) {
       }
     } catch {}
 
-    questions = normalizeList(questions, FALLBACK_QUESTIONS)
-    reflections = normalizeReflections(reflections, FALLBACK_REFLECTIONS)
+    questions = normalizeList(questions, regenerateFallback.questions)
+    reflections = normalizeReflections(reflections, regenerateFallback.reflections)
 
-    if (previousQuestions.length > 0 && questions.some((question) => isRepeatedQuestion(question, previousQuestions))) {
+    if (
+      hasGenericGeneratedQuestion(questions) ||
+      (previousQuestions.length > 0 && questions.some((question) => isRepeatedQuestion(question, previousQuestions)))
+    ) {
       raw = ""
 
       try {
@@ -3391,8 +3454,10 @@ export async function POST(request: Request) {
               role: "user",
               content: [
                 regenerateInput,
-                "방금 생성된 질문이 이전 질문과 겹쳤습니다.",
-                "중심 주제는 유지하되, 이전 질문의 핵심 소재나 대립 구도를 반복하지 말고 실패 조건, 숨은 대가, 시간축, 관계, 감각의 변화 중 하나로 렌즈를 바꾸어 다시 만드세요.",
+                hasGenericGeneratedQuestion(questions)
+                  ? "방금 생성된 질문이 너무 범용적이거나 '이 문제', '이 변화', '쟁점' 같은 지시어에 기대고 있습니다."
+                  : "방금 생성된 질문이 이전 질문과 겹쳤습니다.",
+                "중심 주제는 유지하되, 요약 안의 구체 명사·대립·조건을 질문 안에 직접 넣으세요. 이전 질문의 핵심 소재나 대립 구도를 반복하지 말고 실패 조건, 숨은 대가, 시간축, 관계, 감각의 변화 중 하나로 렌즈를 바꾸어 다시 만드세요.",
               ].join("\n\n"),
             },
           ],
@@ -3407,14 +3472,19 @@ export async function POST(request: Request) {
           const payload = parsed as { questions?: unknown; reflections?: unknown }
 
           if (Array.isArray(payload.questions) && payload.questions.every((q) => typeof q === "string")) {
-            questions = normalizeList(payload.questions, FALLBACK_QUESTIONS)
+            questions = normalizeList(payload.questions, regenerateFallback.questions)
           }
           if (Array.isArray(payload.reflections) && payload.reflections.every((r) => typeof r === "string")) {
-            reflections = normalizeReflections(payload.reflections, FALLBACK_REFLECTIONS)
+            reflections = normalizeReflections(payload.reflections, regenerateFallback.reflections)
           }
         }
       } catch (error) {
         console.error("Qraft regenerate duplicate retry failed", error)
+      }
+
+      if (hasGenericGeneratedQuestion(questions)) {
+        questions = regenerateFallback.questions
+        reflections = regenerateFallback.reflections
       }
     }
 

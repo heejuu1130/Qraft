@@ -1,5 +1,6 @@
 import type { Provider } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
+import { getAuthErrorMessage } from "@/lib/auth-error-message"
 import { getSiteOrigin } from "@/lib/site-url"
 import { createRouteClient } from "@/lib/supabase/route"
 
@@ -32,9 +33,10 @@ export async function GET(request: Request) {
   })
 
   if (error || !data.url) {
+    const errorCode = error?.code ?? "oauth_url_failed"
     const params = new URLSearchParams({
-      error: error?.code ?? "oauth_url_failed",
-      message: error?.message ?? "로그인 주소를 만들지 못했습니다.",
+      error: errorCode,
+      message: getAuthErrorMessage(errorCode, error?.code, error?.message),
     })
 
     return applyCookies(NextResponse.redirect(`${origin}/auth?${params.toString()}`))

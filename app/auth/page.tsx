@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { useAuth } from "@/context/AuthContext"
+import { getAuthErrorMessage } from "@/lib/auth-error-message"
 import { gtag } from "@/lib/gtag"
 import { isLocalDevAuthEnabled } from "@/lib/local-dev-auth"
 import { usePerformanceMode } from "@/lib/use-performance-mode"
@@ -19,16 +20,18 @@ export default function AuthPage() {
     const { signInLocalDev } = useAuth()
     const router = useRouter()
     const [hasError, setHasError] = useState(false)
-    const [errorCode, setErrorCode] = useState("")
     const [errorMessage, setErrorMessage] = useState("")
     const { backgroundMotionMode, pauseCssMotion, reduceShaderLoad, renderShader } = usePerformanceMode()
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
             const params = new URLSearchParams(window.location.search)
-            setHasError(params.has("error"))
-            setErrorCode(params.get("code") ?? params.get("error") ?? "")
-            setErrorMessage(params.get("message") ?? "")
+            const error = params.get("error")
+            const code = params.get("code")
+            const message = params.get("message")
+
+            setHasError(Boolean(error || code || message))
+            setErrorMessage(getAuthErrorMessage(error, code, message))
         }, 0)
 
         return () => window.clearTimeout(timer)
@@ -69,15 +72,10 @@ export default function AuthPage() {
                         질문 히스토리를 저장하시려면 로그인하세요
                     </p>
                     {hasError && (
-                        <div className="mt-3 space-y-1">
+                        <div className="mt-3">
                             <p className="text-xs font-medium text-red-400/80">
-                                {errorMessage || "로그인에 실패했습니다. 다시 시도해주세요."}
+                                {errorMessage}
                             </p>
-                            {errorCode && (
-                                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-red-300/45">
-                                    {errorCode}
-                                </p>
-                            )}
                         </div>
                     )}
 

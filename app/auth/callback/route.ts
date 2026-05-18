@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { getAuthErrorMessage } from "@/lib/auth-error-message"
 import { getSiteOrigin } from "@/lib/site-url"
 import { createRouteClient } from "@/lib/supabase/route"
 
@@ -34,9 +35,7 @@ export async function GET(request: Request) {
       params.set("code", providerErrorCode)
     }
 
-    if (providerErrorDescription) {
-      params.set("message", providerErrorDescription)
-    }
+    params.set("message", getAuthErrorMessage(providerError, providerErrorCode, providerErrorDescription))
 
     return redirectTo(`/auth?${params.toString()}`)
   }
@@ -45,13 +44,14 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) {
       console.error("Auth callback error:", error.message)
+      const errorCode = "code" in error && typeof error.code === "string" ? error.code : null
       const params = new URLSearchParams({
         error: "auth_failed",
-        message: error.message,
+        message: getAuthErrorMessage("auth_failed", errorCode, error.message),
       })
 
-      if ("code" in error && typeof error.code === "string") {
-        params.set("code", error.code)
+      if (errorCode) {
+        params.set("code", errorCode)
       }
 
       return redirectTo(`/auth?${params.toString()}`)
